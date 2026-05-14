@@ -1,0 +1,49 @@
+[package]
+name = "timed_commitments"
+version = "0.1.0"
+authors = ["Nirvan Tyagi <nirvan.tyagi@gmail.com>"]
+edition = "2021"
+
+
+[dependencies]
+ark-ff = { version = "0.3" }
+ark-ec = { version = "0.3" }
+ark-std = { version = "0.3" }
+ark-snark = { version = "0.3" }
+ark-sponge = { version = "0.3", features = ["r1cs"] }
+ark-r1cs-std = { version = "0.3" }
+ark-relations = { version = "0.3" }
+primitive-types = { version = "0.10", features = ["rlp"] }
+hex = { version = "0.4" }
+
+# dev-dependencies (https://github.com/rust-lang/cargo/issues/6915)
+ark-groth16 = { version = "0.3" }
+ark-marlin = { version = "0.3" }
+
+num-bigint = { version = "0.4", features = ["rand"] }
+num-integer = { version = "0.1" }
+num-traits = { version = "0.2" }
+rand = { version = "0.8" }
+digest = { version = "0.9" }
+once_cell = { version = "1.9" }
+
+tracing = { version = "0.1", default-features = false, features = [ "attributes" ] }
+rayon = { version = "1", optional = true }
+
+rsa = { path = "../rsa" }
+
+[dev-dependencies]
+ark-bls12-381 = { version = "0.3", features = [ "curve" ] }
+ark-ed-on-bls12-381 = { version = "0.3", features = ["r1cs"] }
+ark-poly = { version = "0.3" }
+ark-poly-commit = { version = "0.3" }
+
+once_cell = { version = "1.9" }
+sha3 = { version = "0.9" }
+tracing-subscriber = { version = "0.3" }
+
+[features]
+default = ["std", "parallel" ]
+std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-groth16/std", "ark-marlin/std" ]
+parallel = [ "rayon", "ark-std/parallel", "ark-groth16/parallel", "ark-marlin/parallel" ]
+print-trace = [ "ark-std/print-trace" ]

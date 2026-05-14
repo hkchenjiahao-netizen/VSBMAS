@@ -1,0 +1,11 @@
+[workspace]
+
+members = [
+  "rsa",
+  "timed_commitments",
+  "range_proofs",
+  "solidity_test_utils",
+  "solidity",
+  "pari_factor",
+  "auction_house",
+]

@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = [
+    "backend",
+    "crates/vsbmas_core",
+    "crates/vsbmas_round",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+authors = ["VSBMAS Student Demo"]
+license = "MIT"
+
+[workspace.dependencies]
+# Riggs 本地 path 依赖（保持与 Riggs 的 ark-* 0.3 一致）
+auction_house     = { path = "../riggs-master/riggs-master/auction_house" }
+timed_commitments = { path = "../riggs-master/riggs-master/timed_commitments" }
+range_proofs      = { path = "../riggs-master/riggs-master/range_proofs" }
+rsa               = { path = "../riggs-master/riggs-master/rsa" }
+solidity_test_utils = { path = "../riggs-master/riggs-master/solidity_test_utils" }
+solidity          = { path = "../riggs-master/riggs-master/solidity" }
+
+# arkworks 0.3（与 Riggs 对齐，见 riggs/auction_house/Cargo.toml:9-15）
+ark-ff = "0.3"
+ark-ec = "0.3"
+ark-std = "0.3"
+ark-bn254 = { version = "0.3", features = ["curve"] }
+
+# 杂项
+digest = "0.9"
+sha3 = "0.9"
+rand = "0.8"
+num-bigint = { version = "0.4", features = ["rand"] }
+num-integer = "0.1"
+num-traits = "0.2"
+once_cell = "1"
+thiserror = "1"
+anyhow = "1"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["serde", "macros", "formatting"] }
+
+# 本阶段不引入 solc / revm；留到 md 14 再按 feature flag 加
