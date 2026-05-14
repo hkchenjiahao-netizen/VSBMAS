@@ -1,0 +1,9 @@
+[package]
+name = "vsbmas_round"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+time = { workspace = true, features = ["serde", "macros", "formatting", "parsing"] }
+thiserror.workspace = true

@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Student — VSBMAS</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <header class="bg-white shadow-sm">
+    <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+      <h1 class="text-xl font-bold text-indigo-700">Student console</h1>
+      <div class="flex items-center gap-3">
+        <span id="whoami" class="text-sm text-slate-500"></span>
+        <a href="/" class="text-slate-500 text-sm">← Home</a>
+      </div>
+    </div>
+    <!-- v4：Tech stack 徽标条，说明本页面的所有交互都受以下四项密码学原语保护 -->
+    <div class="max-w-5xl mx-auto px-6 pb-3 flex flex-wrap gap-2 text-xs">
+      <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200" title="Pedersen commitment hides bid amount on-chain; only the committer knows the opening.">Pedersen</span>
+      <span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200" title="Bulletproofs range proofs: bid∈[0, 2^32), bid≥reserve_price, bid>prev_round_high_bid. All verified server-side.">Bulletproofs · ZK</span>
+      <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200" title="RSW time-lock: force-open requires 2^T sequential squarings in a hidden-order RSA group (no shortcut, no GPU parallelism).">RSW time-lock</span>
+      <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200" title="PoE (Wesolowski) proves that y = x^{2^T} with only 1 group element + 1 prime, cheap to verify.">PoE</span>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto p-6 space-y-6">
+    <section class="bg-white rounded-2xl shadow p-6" id="sec-register">
+      <h2 class="text-lg font-semibold mb-3">Identity</h2>
+      <div class="flex flex-wrap gap-3 items-end">
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Switch saved user</span>
+          <select id="sel-saved-user" class="border rounded px-3 py-2 min-w-[14rem]"></select>
+        </label>
+        <button id="btn-use-saved" class="px-3 py-2 border rounded text-sm">Use</button>
+        <button id="btn-forget-saved" class="px-3 py-2 border rounded text-sm text-rose-600">Forget</button>
+        <span class="text-xs text-slate-400 basis-full">Saved users live in browser localStorage; each is a real backend account (id assigned by server).</span>
+      </div>
+
+      <hr class="my-4">
+
+      <div id="register-form" class="flex gap-2 items-end flex-wrap">
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Display name (new)</span>
+          <input id="inp-name" class="border rounded px-3 py-2">
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Initial balance</span>
+          <input id="inp-balance" type="number" value="1000" class="border rounded px-3 py-2 w-32">
+        </label>
+        <button id="btn-register" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">Create + Join as new user</button>
+        <button id="btn-logout" class="px-4 py-2 border rounded hidden">Logout current</button>
+      </div>
+      <div id="account-info" class="mt-3 text-sm text-slate-700 hidden"></div>
+    </section>
+
+    <section class="bg-indigo-50 border border-indigo-100 rounded-2xl p-6">
+      <h2 class="text-lg font-semibold mb-2 text-indigo-900">Live session HUD</h2>
+      <div id="stu-phase-hud" class="text-sm font-mono text-indigo-800">Phase / countdown: —</div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6" id="sec-bid">
+      <h2 class="text-lg font-semibold mb-3">Bid</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Auction (current Riggs id)</span>
+          <select id="sel-auction" class="border rounded px-3 py-2"></select>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Bid amount</span>
+          <input id="inp-amount" type="number" min="1" max="65535" value="100" class="border rounded px-3 py-2">
+        </label>
+        <div class="flex items-end gap-2">
+          <button id="btn-bid" class="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 w-full">Submit encrypted bid</button>
+        </div>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">Pedersen + Bulletproofs + time-lock (TTD). Teacher controls phases; you can only bid in BidCollection.</p>
+      <p class="text-xs text-amber-800 mt-1">Each new round uses a new Riggs auction id; select the latest id to bid again.</p>
+      <div id="bid-result" class="mt-4"></div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6" id="sec-ledger">
+      <h2 class="text-lg font-semibold mb-3">Account ledger</h2>
+      <p class="text-xs text-slate-500 mb-2">Balance-related audit entries for the current user (loaded from server).</p>
+      <div class="overflow-x-auto max-h-56 overflow-y-auto border rounded">
+        <table class="w-full text-xs">
+          <thead class="text-slate-500 bg-slate-50 sticky top-0">
+            <tr><th class="text-left py-1 px-2">#</th><th class="text-left py-1 px-2">Type</th><th class="text-left py-1 px-2">Summary</th></tr>
+          </thead>
+          <tbody id="ledger-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6" id="sec-bids">
+      <h2 class="text-lg font-semibold mb-3">My active bids</h2>
+      <table class="w-full text-sm">
+        <thead class="text-slate-500">
+          <tr>
+            <th class="text-left py-1">Auction (riggs)</th>
+            <th class="text-left py-1">Amount</th>
+            <th class="text-left py-1">Commitment (preview)</th>
+            <th class="text-left py-1">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="bids-body"></tbody>
+      </table>
+    </section>
+
+    <section class="bg-slate-50 border rounded-2xl p-6">
+      <h2 class="text-lg font-semibold mb-3">Brute-force RSW · real sequential squaring (auto-calibrated T)</h2>
+      <p class="text-xs text-slate-600 mb-2">Targets another user’s commitment base on the same auction. Each step truly computes <code>y ← y²</code> in the hidden-order RSA group; there is no sleep-based simulation. Elapsed time is real wall-clock.</p>
+      <p class="text-xs text-slate-700 mb-2 border-l-4 border-slate-400 pl-2">RSW squarings are inherently sequential; GPUs do not speed up a single chain. Multiple tasks only demo parallel targets.</p>
+      <div class="flex flex-wrap gap-2 items-center">
+        <label class="text-sm">Riggs auction <select id="bf-auction" class="border rounded px-2 py-1 min-w-[12rem]"></select></label>
+        <label class="text-sm">Target user <select id="bf-target-sel" class="border rounded px-2 py-1 min-w-[8rem]"></select></label>
+        <button type="button" id="bf-start" class="px-3 py-1 bg-rose-600 text-white rounded text-sm">Start</button>
+        <button type="button" id="bf-stop" class="px-3 py-1 border rounded text-sm">Stop</button>
+      </div>
+      <div id="bf-tasks" class="mt-3 space-y-2 text-xs"></div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import { api, EventStream, $ } from '/assets/common.js';
+    import { toast, hexCard } from '/assets/components.js';
+
+    const LS_USERS  = 'vsbmas_users';
+    const LS_USERS_LEGACY = 'vsbmas.users';
+    const LS_ACTIVE = 'vsbmas_active_user_id';
+    const LS_ACTIVE_LEGACY = 'vsbmas.activeUserId';
+    const MAX_IDENTITIES = 5;
+
+    function loadUsers() {
+      try {
+        let raw = localStorage.getItem(LS_USERS);
+        if (!raw) {
+          raw = localStorage.getItem(LS_USERS_LEGACY);
+          if (raw) localStorage.setItem(LS_USERS, raw);
+        }
+        return JSON.parse(raw || '[]');
+      } catch { return []; }
+    }
+    function saveUsers(list) { localStorage.setItem(LS_USERS, JSON.stringify(list)); }
+    function migrateActiveKey() {
+      const v = localStorage.getItem(LS_ACTIVE_LEGACY);
+      if (v && !localStorage.getItem(LS_ACTIVE)) localStorage.setItem(LS_ACTIVE, v);
+    }
+    migrateActiveKey();
+    function upsertUser(u) {
+      if (!u.created_at) u.created_at = Date.now();
+      const list = loadUsers().filter(x => x.id !== u.id);
+      list.push(u);
+      saveUsers(list);
+    }
+    function renderSavedSelect() {
+      const sel = document.getElementById('sel-saved-user');
+      const list = loadUsers();
+      sel.innerHTML = list.length
+        ? list.map(u => {
+            const lab = u.label || u.name || ('user ' + u.id);
+            return `<option value="${u.id}">${lab} (id=${u.id}) · total ${u.balance ?? '?'}</option>`;
+          }).join('')
+        : `<option value="">(no saved users yet)</option>`;
+      const active = localStorage.getItem(LS_ACTIVE);
+      if (active) sel.value = active;
+    }
+
+    let me = null;
+    const myBids = new Map();
+    /** @type {Map<number, { top: number, currentRiggs: number, item_name: string, reserve_price: number }>} */
+    const sessionRoots = new Map();
+
+    let lastDeadlineMs = null;
+    let lastPhaseLabel = '';
+    // v4.2：按 auction 分片缓存，切换 #sel-auction 时用来重绘 HUD。
+    /** @type {Map<number, { label: string, deadlineMs: number | null }>} */
+    const stuPhaseByAid = new Map();
+    /** @type {Map<string, { auction_id: number, target_user_id: number }>} */
+    const bfTasks = new Map();
+
+    function currentSelAid() {
+      const v = $('#sel-auction')?.value;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function rerenderStuHudsForCurrent() {
+      const aid = currentSelAid();
+      if (aid != null && stuPhaseByAid.has(aid)) {
+        const ph = stuPhaseByAid.get(aid);
+        lastPhaseLabel = ph.label || '';
+        lastDeadlineMs = ph.deadlineMs ?? null;
+      } else {
+        lastPhaseLabel = '';
+        lastDeadlineMs = null;
+      }
+      // renderMyBids 依赖 lastPhaseLabel 决定按钮状态，这里也跟着刷新一下。
+      renderMyBids();
+    }
+
+    function renderWhoami() {
+      if (!me) return;
+      $('#whoami').textContent = `${me.name} (id=${me.id}) · total ${me.balance} · avail ${me.available ?? '?'} · frozen ${me.frozen ?? '?'}`;
+    }
+
+    function setMe(u) {
+      me = u;
+      if (u) {
+        upsertUser(u);
+        localStorage.setItem(LS_ACTIVE, String(u.id));
+        renderSavedSelect();
+        renderWhoami();
+        $('#register-form').classList.add('hidden');
+        $('#btn-logout').classList.remove('hidden');
+        $('#account-info').classList.remove('hidden');
+        $('#account-info').innerHTML = `Session in localStorage. Balances update live over WebSocket.`;
+        refreshLedger();
+      } else {
+        localStorage.removeItem(LS_ACTIVE);
+        renderSavedSelect();
+        $('#whoami').textContent = '';
+        $('#register-form').classList.remove('hidden');
+        $('#btn-logout').classList.add('hidden');
+        $('#account-info').classList.add('hidden');
+      }
+    }
+
+    async function refreshWallet() {
+      if (!me) return;
+      try {
+        const r = await api('GET', `/accounts/${me.id}`);
+        setMe({ ...me, balance: r.balance, available: r.available, frozen: r.frozen });
+      } catch (_) {}
+    }
+
+    renderSavedSelect();
+    const activeId = localStorage.getItem(LS_ACTIVE);
+    if (activeId) {
+      const u = loadUsers().find(x => String(x.id) === activeId);
+      if (u) setMe(u);
+    }
+    refreshWallet();
+    refreshLedger();
+
+    $('#btn-register').onclick = async () => {
+      if (loadUsers().length >= MAX_IDENTITIES) {
+        toast('Max 5 identities — Forget one to add new', 'warn', 6000);
+        return;
+      }
+      const name = $('#inp-name').value.trim() || `student${Math.floor(Math.random()*1000)}`;
+      const balance = Number($('#inp-balance').value);
+      try {
+        const res = await api('POST', '/accounts', { name, initial_balance: balance });
+        setMe({ id: res.id, name: res.name, label: name, balance: res.balance, available: res.available, frozen: res.frozen, created_at: Date.now() });
+        toast('Joined successfully', 'ok');
+      } catch (e) { toast('Join failed: ' + e.message, 'danger'); }
+    };
+    document.getElementById('btn-use-saved').onclick = async () => {
+      const raw = document.getElementById('sel-saved-user').value;
+      if (raw === '' || raw == null) return;
+      const id = Number(raw);
+      if (!Number.isFinite(id)) return;
+      const u = loadUsers().find(x => x.id === id);
+      if (u) {
+        myBids.clear();
+        setMe(u);
+        await refreshWallet();
+        await refreshLedger();
+        toast('Switched to user ' + (u.label || u.name), 'ok');
+      }
+    };
+    document.getElementById('btn-forget-saved').onclick = () => {
+      const raw = document.getElementById('sel-saved-user').value;
+      if (raw === '' || raw == null) return;
+      const id = Number(raw);
+      if (!Number.isFinite(id)) return;
+      saveUsers(loadUsers().filter(x => x.id !== id));
+      if (String(id) === localStorage.getItem(LS_ACTIVE)) setMe(null);
+      renderSavedSelect();
+    };
+    $('#btn-logout').onclick = () => setMe(null);
+
+    function renderAuctionSel() {
+      const sel = $('#sel-auction');
+      const prev = sel.value;
+      sel.innerHTML = [...sessionRoots.values()].map(s =>
+        `<option value="${s.currentRiggs}">Top ${s.top} · riggs #${s.currentRiggs} · ${s.item_name} (res ${s.reserve_price})</option>`
+      ).join('');
+      // 优先保留用户之前选中的值；否则落到第一个。
+      if (prev && sel.querySelector(`option[value="${prev}"]`)) {
+        sel.value = prev;
+      } else {
+        const first = [...sessionRoots.values()][0];
+        if (first && sel.querySelector(`option[value="${first.currentRiggs}"]`)) {
+          sel.value = String(first.currentRiggs);
+        }
+      }
+      refreshBfSelectors();
+      // v4.2：重绘完 select 后顺手根据当前 aid 重绘 HUD。
+      rerenderStuHudsForCurrent();
+    }
+
+    // v4.2：#sel-auction 切换时刷新 HUD（phase + rankings）。
+    $('#sel-auction').addEventListener('change', () => {
+      rerenderStuHudsForCurrent();
+    });
+
+    async function refreshBfSelectors() {
+      const bfA = document.getElementById('bf-auction');
+      const bfU = document.getElementById('bf-target-sel');
+      if (!bfA || !bfU) return;
+      bfA.innerHTML = [...sessionRoots.values()].map(s =>
+        `<option value="${s.currentRiggs}">#${s.currentRiggs} · ${s.item_name}</option>`
+      ).join('') || '<option value="">(no auction)</option>';
+      const aid = Number(bfA.value) || Number([...sessionRoots.values()][0]?.currentRiggs);
+      if (!Number.isFinite(aid)) {
+        bfU.innerHTML = '<option value="">(no auction created yet)</option>';
+        return;
+      }
+      try {
+        const r = await api('GET', `/auctions/${aid}/pending_users`);
+        const ids = r.user_ids || [];
+        bfU.innerHTML = ids.length
+          ? ids.map(id => `<option value="${id}">user ${id}</option>`).join('')
+          : '<option value="">(no unrevealed bids)</option>';
+        bfU.title = 'Pending users fetched OK';
+      } catch (err) {
+        const msg = (err && err.message) ? err.message : 'network';
+        bfU.innerHTML = `<option value="">(load failed: ${msg.slice(0, 40)})</option>`;
+        bfU.title = `GET /auctions/${aid}/pending_users failed: ${msg}`;
+      }
+    }
+
+    // v4：附加到 bf-auction 以便选择 auction 切换时刷新 target list
+    document.addEventListener('DOMContentLoaded', () => {
+      const bfA = document.getElementById('bf-auction');
+      if (bfA) bfA.addEventListener('change', refreshBfSelectors);
+    });
+    setInterval(() => { refreshBfSelectors().catch(() => {}); }, 5000);
+
+    function ledgerSummary(ev) {
+      const t = ev.type || '';
+      if (t === 'AccountBalanceSnapshot') return `total ${ev.total} · avail ${ev.available} · frozen ${ev.frozen}`;
+      if (t === 'Deposit') return `+${ev.amount} → balance ${ev.new_balance}`;
+      if (t === 'Withdraw') return `−${ev.amount}`;
+      if (t === 'BruteForceCracked') return `brute-force cracked · bid ${ev.bid_revealed} · ${ev.elapsed_ms}ms (real 2^T squarings)`;
+      if (t === 'BidSubmitted') {
+        const cp = ev.constraint_proofs;
+        let extra = '';
+        if (cp) {
+          const parts = [`ZK bid≥reserve(${cp.reserve_price})${cp.reserve_verify_ok ? '✓' : '✗'}`];
+          if (cp.prev_round_high_bid != null) parts.push(`bid>prev_high(${cp.prev_round_high_bid})${cp.prev_verify_ok ? '✓' : '✗'}`);
+          extra = ' · ' + parts.join(' · ');
+        }
+        return `auction ${ev.auction_id} · prove ${ev.prove_ms}ms${extra}`;
+      }
+      if (t === 'SelfOpened' || t === 'ForceOpened') return `auction ${ev.auction_id} · bid ${ev.bid_revealed}`;
+      if (t === 'Settled') return `price ${ev.price} · winners ${(ev.winners || []).join(',')}`;
+      return JSON.stringify(ev).slice(0, 120);
+    }
+
+    async function refreshLedger() {
+      if (!me) return;
+      try {
+        const r = await api('GET', `/accounts/${me.id}/ledger`);
+        const rows = r.entries || [];
+        $('#ledger-body').innerHTML = rows.map(e =>
+          `<tr class="border-b"><td class="py-1 px-2 font-mono">${e.seq ?? '—'}</td><td class="py-1 px-2">${e.type || ''}</td><td class="py-1 px-2">${ledgerSummary(e)}</td></tr>`
+        ).join('');
+      } catch (_) {}
+    }
+
+    function appendLedgerRow(ev) {
+      if (!me) return;
+      const ok = ev.type === 'AccountBalanceSnapshot' && ev.user_id === me.id
+        || ev.type === 'Deposit' && ev.id === me.id
+        || ev.type === 'Withdraw' && ev.user_id === me.id
+        || (ev.type === 'BidSubmitted' || ev.type === 'SelfOpened' || ev.type === 'ForceOpened') && ev.user_id === me.id
+        || ev.type === 'VerificationFailed' && ev.actor === me.id
+        || ev.type === 'BruteForceProgress' && ev.target_user_id === me.id
+        || ev.type === 'BruteForceCracked' && ev.user_id === me.id;
+      if (!ok) return;
+      const tr = document.createElement('tr');
+      tr.className = 'border-b';
+      tr.innerHTML = `<td class="py-1 px-2 font-mono">live</td><td class="py-1 px-2">${ev.type || ''}</td><td class="py-1 px-2">${ledgerSummary(ev)}</td>`;
+      $('#ledger-body').prepend(tr);
+    }
+
+    async function bootAuctions() {
+      const { events } = await api('GET', '/events?since=0&since_boot=true');
+      for (const ev of events) {
+        if (ev.type === 'AuctionCreated') {
+          sessionRoots.set(ev.id, {
+            top: ev.id,
+            currentRiggs: ev.id,
+            item_name: ev.item_name,
+            reserve_price: ev.reserve_price,
+          });
+        }
+        if (ev.type === 'RoundAdvanced') {
+          const s = sessionRoots.get(ev.auction_id);
+          if (s) {
+            const oldR = s.currentRiggs;
+            s.currentRiggs = ev.current_riggs_auction_id;
+            if (myBids.has(oldR)) {
+              const b = myBids.get(oldR);
+              myBids.delete(oldR);
+              myBids.set(s.currentRiggs, b);
+            }
+          }
+        }
+      }
+      renderAuctionSel();
+    }
+
+    function tickStuHud() {
+      const el = $('#stu-phase-hud');
+      // v4.2：按当前选中 auction 读分片；若无数据退回全局变量（首次未选定时）。
+      const aid = currentSelAid();
+      const ph = aid != null ? stuPhaseByAid.get(aid) : null;
+      const label = ph?.label ?? lastPhaseLabel;
+      const deadline = ph?.deadlineMs ?? lastDeadlineMs;
+      if (deadline == null) {
+        el.textContent = label ? `Phase: ${label}` : 'Phase / countdown: —';
+        return;
+      }
+      const sec = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+      el.textContent = `${label || 'Phase'} · ${sec}s (display)`;
+    }
+    setInterval(tickStuHud, 400);
+
+    function scheduleButtonFor(aid, b) {
+      // v4.1（问题 3）：
+      //   - BidCollection：可预约 → 按钮可点（除非已预约）。
+      //   - BidSelfOpening：预约者由后端批处理自动揭示；未预约者此时已来不及，置灰。
+      //   - 其它阶段：禁用，提示只在 Collection 阶段可预约。
+      if (b.opened) {
+        return `<span class="px-2 py-0.5 text-xs rounded bg-slate-300 text-slate-600">Opened</span>`;
+      }
+      const phase = lastPhaseLabel || '';
+      if (b.scheduled) {
+        return `<span class="px-2 py-0.5 text-xs rounded bg-emerald-500 text-white" title="Queued; teacher's Open-bid phase will reveal it automatically">Scheduled</span>`;
+      }
+      if (phase === 'BidCollection') {
+        return `<button data-action="intent" data-aid="${aid}" class="px-2 py-0.5 text-xs rounded bg-amber-500 text-white">Schedule self-open</button>`;
+      }
+      if (phase === 'BidSelfOpening') {
+        return `<span class="px-2 py-0.5 text-xs rounded bg-slate-400 text-white" title="Schedule window closed; teacher will force-open via RSW">Missed schedule window</span>`;
+      }
+      return `<span class="px-2 py-0.5 text-xs rounded bg-slate-300 text-slate-600" title="Only available in BidCollection">Schedule self-open</span>`;
+    }
+
+    function renderMyBids() {
+      $('#bids-body').innerHTML = [...myBids.entries()].map(([aid, b]) => `
+        <tr class="border-b">
+          <td class="py-1">#${aid}</td>
+          <td class="py-1">${b.opened ? b.amount : '<span class="text-slate-400">Encrypted</span>'}</td>
+          <td class="py-1 hex-monospace text-xs">${(b.ped_commit_hex ?? '').slice(0, 40)}…</td>
+          <td class="py-1 space-x-1 flex flex-wrap gap-1">
+            ${scheduleButtonFor(aid, b)}
+            <button data-action="release" data-aid="${aid}"
+              class="px-2 py-0.5 text-xs rounded bg-slate-600 text-white ${b.opened ? '' : 'opacity-40 pointer-events-none'}">Release (loser)</button>
+          </td>
+        </tr>
+      `).join('');
+      $('#bids-body').querySelectorAll('button[data-action]').forEach(btn => {
+        btn.onclick = async () => {
+          const aid = Number(btn.dataset.aid);
+          const action = btn.dataset.action;
+          const b = myBids.get(aid);
+          if (action === 'intent') {
+            if (!b) return;
+            try {
+              const r = await api('POST', `/auctions/${aid}/self_open_intent`, { user_id: me.id, bid: b.amount });
+              const msg = r.mode === 'immediate'
+                ? 'Self-open executed now (Open-bid phase)'
+                : 'Queued for teacher Open-bid phase';
+              b.scheduled = true;
+              myBids.set(aid, b);
+              renderMyBids();
+              toast(msg, 'ok');
+            } catch (err) {
+              const code = err.data && err.data.error;
+              if (code === 'must_schedule_in_collection') {
+                toast('Schedule window closed. Teacher will force-open via RSW.', 'warn', 8000);
+              } else {
+                const detail = err.data && err.data !== err.message ? JSON.stringify(err.data) : err.message;
+                toast('Intent failed: ' + detail, 'danger', 8000);
+              }
+            }
+          } else if (action === 'release') {
+            try {
+              const r = await api('POST', `/auctions/${aid}/release_loser`, { user_id: me.id });
+              toast(r.released ? 'Escrow released' : 'Nothing to release (already settled)', 'ok');
+              refreshWallet();
+              refreshLedger();
+            } catch (err) { toast('Release: ' + err.message, 'danger', 5000); }
+          }
+        };
+      });
+    }
+
+    $('#btn-bid').onclick = async () => {
+      if (!me) return toast('Join first', 'warn');
+      const aid = Number($('#sel-auction').value);
+      const amount = Number($('#inp-amount').value);
+      if (!Number.isFinite(amount) || amount <= 0) return toast('Invalid amount', 'warn');
+
+      try {
+        const res = await api('POST', `/auctions/${aid}/bid`, { user_id: me.id, amount });
+        myBids.set(aid, { amount, ped_commit_hex: res.bid_view.ped_commit_hex, opened: false, scheduled: false });
+        renderMyBids();
+        setMe({ ...me, available: res.available, frozen: res.frozen, balance: me.balance });
+
+        const box = $('#bid-result');
+        box.innerHTML = '';
+        box.appendChild(hexCard({
+          title: `#${aid} Pedersen commitment`,
+          hex: res.bid_view.ped_commit_hex,
+          sizeBytes: 32,
+          meta: `Total proof size ${res.bid_view.total_proof_size_bytes} bytes · prove time ${res.prove_ms} ms`,
+        }));
+        box.appendChild(hexCard({
+          title: `#${aid} Bulletproofs (bid)`,
+          hex: res.bid_view.range_proof_bid_hex,
+          sizeBytes: res.bid_view.range_proof_bid_size,
+        }));
+        const cp = res.constraint_proofs;
+        if (cp) {
+          box.appendChild(hexCard({
+            title: `#${aid} Aux ZK · bid ≥ reserve_price (${cp.reserve_price}) · ${cp.reserve_verify_ok ? 'verify ✓' : 'verify ✗'}`,
+            hex: cp.reserve_proof_hex,
+            sizeBytes: cp.reserve_proof_size,
+            meta: 'Bulletproof on shifted commitment C − g·reserve',
+          }));
+          if (cp.prev_round_high_bid != null && cp.prev_proof_hex) {
+            box.appendChild(hexCard({
+              title: `#${aid} Aux ZK · bid > prev_round_high_bid (${cp.prev_round_high_bid}) · ${cp.prev_verify_ok ? 'verify ✓' : 'verify ✗'}`,
+              hex: cp.prev_proof_hex,
+              sizeBytes: cp.prev_proof_size,
+              meta: 'Bulletproof on shifted commitment C − g·(prev_high+1)',
+            }));
+          }
+        }
+        toast('Bid accepted (still encrypted)', 'ok');
+        refreshWallet();
+      } catch (err) {
+        toast('Bid rejected: ' + (err.data?.raw ?? err.message), 'danger', 6000);
+      }
+    };
+
+    document.getElementById('bf-auction')?.addEventListener('change', () => refreshBfSelectors());
+
+    $('#bf-start').onclick = async () => {
+      if (!me) return toast('Join first', 'warn');
+      const aid = Number(document.getElementById('bf-auction').value);
+      const target = Number(document.getElementById('bf-target-sel').value);
+      if (!Number.isFinite(aid) || !Number.isFinite(target)) return toast('Pick auction and target user', 'warn');
+      try {
+        const r = await api('POST', '/bruteforce/start', { auction_id: aid, target_user_id: target });
+        bfTasks.set(r.task_id, { auction_id: aid, target_user_id: target });
+        toast('Brute-force started (task ' + r.task_id.slice(0, 8) + '…)', 'ok');
+      } catch (e) {
+        toast('Start failed: ' + e.message, 'danger');
+      }
+    };
+    $('#bf-stop').onclick = async () => {
+      const ids = [...bfTasks.keys()];
+      if (!ids.length) return toast('No active tasks', 'warn');
+      const last = ids[ids.length - 1];
+      try {
+        await api('POST', '/bruteforce/stop', { task_id: last });
+        bfTasks.delete(last);
+        toast('Stopped task', 'ok');
+      } catch (e) {
+        toast('Stop failed: ' + e.message, 'danger');
+      }
+    };
+
+    const es = new EventStream();
+    es.addEventListener('event', (e) => {
+      const ev = e.detail;
+      if (ev.type === 'AuctionCreated') {
+        sessionRoots.set(ev.id, {
+          top: ev.id,
+          currentRiggs: ev.id,
+          item_name: ev.item_name,
+          reserve_price: ev.reserve_price,
+        });
+        renderAuctionSel();
+      }
+      if (ev.type === 'RoundAdvanced') {
+        const s = sessionRoots.get(ev.auction_id);
+        if (s) {
+          const oldR = s.currentRiggs;
+          s.currentRiggs = ev.current_riggs_auction_id;
+          if (myBids.has(oldR)) {
+            const b = myBids.get(oldR);
+            myBids.delete(oldR);
+            myBids.set(s.currentRiggs, b);
+          }
+          renderAuctionSel();
+        }
+      }
+      if (ev.type === 'PhaseTransition') {
+        // v4.2：无条件按 auction_id 写入分片；仅当此事件的 aid == 当前 #sel-auction 时才更新全局
+        // lastPhaseLabel / lastDeadlineMs 并重绘按钮，避免其他 auction 的阶段覆盖学生视野。
+        stuPhaseByAid.set(Number(ev.auction_id), {
+          label: ev.to_phase || '',
+          deadlineMs: ev.deadline_epoch_ms ?? null,
+        });
+        const selAid = currentSelAid();
+        if (selAid != null && Number(ev.auction_id) === selAid) {
+          lastPhaseLabel = ev.to_phase || '';
+          if (ev.deadline_epoch_ms != null) lastDeadlineMs = ev.deadline_epoch_ms;
+          renderMyBids();
+        }
+      }
+      if (ev.type === 'AccountBalanceSnapshot' && me && ev.user_id === me.id) {
+        setMe({ ...me, balance: ev.total, available: ev.available, frozen: ev.frozen });
+        appendLedgerRow(ev);
+      }
+      if (ev.type === 'BidSubmitted' && me && ev.user_id === me.id) {
+        appendLedgerRow(ev);
+      }
+      if (ev.type === 'SelfOpened' || ev.type === 'ForceOpened') {
+        if (me && ev.user_id === me.id) {
+          appendLedgerRow(ev);
+          const b = myBids.get(ev.auction_id);
+          if (b) {
+            if (ev.bid_revealed != null) b.amount = ev.bid_revealed;
+            b.opened = true;
+            renderMyBids();
+          }
+          refreshWallet();
+        }
+      }
+      if (ev.type === 'BruteForceProgress') {
+        const box = document.getElementById('bf-tasks');
+        if (!box) return;
+        let card = box.querySelector(`div[data-tid="${ev.task_id}"]`);
+        if (!card) {
+          card = document.createElement('div');
+          card.dataset.tid = ev.task_id;
+          card.className = 'bg-white border rounded p-2 space-y-1';
+          card.innerHTML = `
+            <div class="flex items-center justify-between">
+              <div class="font-semibold text-slate-800" data-role="title">task ${ev.task_id.slice(0, 8)}… · auction ${ev.auction_id} · target ${ev.target_user_id}</div>
+              <span class="text-xs text-rose-600" data-role="status">computing…</span>
+            </div>
+            <div class="text-xs text-slate-600" data-role="meta">—</div>
+            <div class="w-full h-2 bg-slate-200 rounded"><div data-role="bar" class="h-2 bg-rose-500 rounded" style="width:0%"></div></div>
+          `;
+          box.appendChild(card);
+        }
+        const total = String(ev.total_sequential_steps || '').includes('=')
+          ? Number(String(ev.total_sequential_steps).split('=')[1].trim().split(' ')[0])
+          : (1 << Number(ev.time_param_t || 0));
+        const pct = total > 0 ? Math.min(100, (Number(ev.squarings_done) / total) * 100) : 0;
+        card.querySelector('[data-role="bar"]').style.width = pct.toFixed(2) + '%';
+        card.querySelector('[data-role="meta"]').textContent =
+          `${ev.squarings_done} / ${total} sq · ${ev.rate_per_sec.toFixed(1)} sq/s · ETA ~${Math.round(ev.estimated_total_secs)}s · T=${ev.time_param_t} · elapsed ${ev.elapsed_ms}ms`;
+      }
+      if (ev.type === 'BruteForceCracked') {
+        const card = document.querySelector(`#bf-tasks div[data-tid="${ev.task_id}"]`);
+        if (card) {
+          card.querySelector('[data-role="status"]').textContent = `cracked: bid ${ev.bid_revealed}`;
+          card.querySelector('[data-role="status"]').className = 'text-xs text-emerald-600 font-semibold';
+          card.querySelector('[data-role="bar"]').style.width = '100%';
+          card.querySelector('[data-role="meta"]').textContent =
+            `squarings_done = ${ev.squarings_done} · elapsed ${ev.elapsed_ms}ms (demo only; real-world infeasible)`;
+        }
+      }
+      if (ev.type === 'BruteForceStopped') {
+        const card = document.querySelector(`#bf-tasks div[data-tid="${ev.task_id}"]`);
+        if (card) {
+          card.querySelector('[data-role="status"]').textContent = `stopped (${ev.reason})`;
+          card.querySelector('[data-role="status"]').className = 'text-xs text-slate-500';
+        }
+      }
+    });
+
+    await bootAuctions();
+    renderMyBids();
+  </script>
+</body>
+</html>

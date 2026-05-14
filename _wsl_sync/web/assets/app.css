@@ -1,0 +1,17 @@
+:root {
+  --accent: #6366f1;
+  --danger: #ef4444;
+  --ok: #10b981;
+  --warn: #f59e0b;
+}
+.hex-monospace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+.blink-red {
+  animation: blink-red 0.8s ease-in-out 3;
+}
+@keyframes blink-red {
+  0%, 100% { background-color: transparent; }
+  50%      { background-color: rgba(239,68,68,0.35); }
+}

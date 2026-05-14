@@ -1,0 +1,32 @@
+[package]
+name = "backend"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+l1 = ["solidity", "solidity_test_utils"]
+
+[dependencies]
+vsbmas_core = { path = "../crates/vsbmas_core" }
+vsbmas_round = { path = "../crates/vsbmas_round" }
+rsa = { path = "../../riggs/rsa" }
+
+solidity = { path = "../../riggs/solidity", optional = true }
+solidity_test_utils = { path = "../../riggs/solidity_test_utils", optional = true }
+
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+rand.workspace = true
+time.workspace = true
+
+axum = { version = "0.7", features = ["ws", "macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["cors", "fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"

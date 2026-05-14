@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>区块链演示 — VSBMAS / Riggs</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <header class="bg-white shadow-sm">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-2">
+      <h1 class="text-xl font-bold text-indigo-700">区块链上链演示</h1>
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-slate-500 text-xs">含真实课堂轮次打包：<code class="bg-slate-100 px-1 rounded">VsbmasRoundCommitted</code>（Advance 后自动上链）</span>
+        <a href="/" class="text-slate-500">← Home</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-6 space-y-6">
+    <section class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
+      <p class="font-medium mb-1">说明</p>
+      <p>本页展示后端内存中的<strong>简易演示链</strong>：SHA-256 链接、previousHash、简化 PoW（hash 十六进制前缀连续 <code class="bg-amber-100 px-1 rounded">difficulty</code> 个 <code>0</code>）。与 <code>blockchain_demo/riggs_blockchain_demo.py</code> 规则一致，用于课堂展示；<strong>不是</strong>主网或 revm L1。</p>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-semibold mb-4">操作</h2>
+      <div class="flex flex-wrap gap-3 items-center">
+        <label class="flex items-center gap-2 text-sm">
+          <span class="text-slate-600">PoW 难度</span>
+          <input type="number" id="inp-diff" min="1" max="5" value="3" class="border rounded px-2 py-1 w-20 font-mono">
+        </label>
+        <button type="button" id="btn-reset" class="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm hover:bg-slate-800 disabled:opacity-50">仅重置创世块</button>
+        <button type="button" id="btn-demo" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-50">运行示例上链（多区块）</button>
+        <button type="button" id="btn-refresh" class="px-4 py-2 rounded-lg bg-white border border-slate-300 text-sm hover:bg-slate-50 disabled:opacity-50">刷新链</button>
+        <button type="button" id="btn-validate" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-50">校验链</button>
+        <button type="button" id="btn-tamper" class="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm hover:bg-rose-700 disabled:opacity-50">篡改演示（BidSubmitted / VsbmasRoundCommitted）</button>
+      </div>
+      <p id="busy-hint" class="mt-3 text-xs text-slate-500 hidden">正在挖矿，请稍候…</p>
+    </section>
+
+    <section id="validate-panel" class="rounded-2xl p-4 border hidden">
+      <p id="validate-text" class="text-sm font-medium"></p>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-semibold mb-2">当前链</h2>
+      <p class="text-xs text-slate-500 mb-2"><span id="meta-diff"></span> · <span id="meta-count"></span> 个区块</p>
+      <p id="meta-real" class="text-xs text-emerald-700 font-mono mb-4">真实轮次区块：—</p>
+      <div id="chain-root" class="space-y-4"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+    const busy = $('busy-hint');
+    const validatePanel = $('validate-panel');
+    const validateText = $('validate-text');
+
+    function setBusy(on) {
+      busy.classList.toggle('hidden', !on);
+      document.querySelectorAll('button').forEach((b) => { b.disabled = on; });
+    }
+
+    async function api(method, path, body) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body !== undefined) opts.body = JSON.stringify(body);
+      const r = await fetch(path, opts);
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(t || r.statusText);
+      }
+      return r.json();
+    }
+
+    function showValidate(valid, message) {
+      validatePanel.classList.remove('hidden');
+      validatePanel.className = 'rounded-2xl p-4 border ' + (valid ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200');
+      validateText.className = 'text-sm font-medium ' + (valid ? 'text-emerald-900' : 'text-rose-900');
+      validateText.textContent = (valid ? '✓ ' : '✗ ') + message;
+    }
+
+    function renderChain(data) {
+      $('meta-diff').textContent = 'difficulty = ' + data.difficulty;
+      $('meta-count').textContent = data.block_count ?? (data.chain && data.chain.length) ?? 0;
+      const lr = data.latest_round_block;
+      const rn = data.real_round_block_count;
+      if (lr && typeof lr === 'object') {
+        const h = lr.hash != null ? String(lr.hash).slice(0, 18) + '…' : '—';
+        $('meta-real').textContent =
+          `真实轮次区块：共 ${rn ?? 0} · 最新 #${lr.block_index ?? '—'} ${h} riggs ${lr.riggs_auction_id ?? '—'}`;
+      } else {
+        $('meta-real').textContent = `真实轮次区块：${rn ?? 0}（尚无 VsbmasRoundCommitted）`;
+      }
+      const root = $('chain-root');
+      root.innerHTML = '';
+      const chain = data.chain || [];
+      if (!chain.length) {
+        root.innerHTML = '<p class="text-slate-500 text-sm">暂无区块</p>';
+        return;
+      }
+      for (const b of chain) {
+        const card = document.createElement('div');
+        const txsList = b.transactions || [];
+        const hasV = txsList.some((tx) => tx && tx.type === 'VsbmasRoundCommitted');
+        card.className =
+          'border rounded-xl p-4 ' +
+          (hasV
+            ? 'border-emerald-400 bg-emerald-50/90 ring-2 ring-emerald-200'
+            : 'border-slate-200 bg-slate-50/80');
+        const txs = txsList.map((tx, i) => {
+          const line = JSON.stringify(tx);
+          return `<div class="font-mono text-xs break-all text-slate-700 border-t border-slate-200 pt-2 mt-2 first:border-0 first:pt-0 first:mt-0">${i}. ${line}</div>`;
+        }).join('');
+        card.innerHTML = `
+          <div class="flex flex-wrap justify-between gap-2 mb-2">
+            <span class="font-bold text-indigo-700">区块 #${b.index}</span>
+            <span class="text-xs text-slate-500">nonce ${b.nonce}</span>
+          </div>
+          <div class="space-y-1 text-xs font-mono break-all">
+            <div><span class="text-slate-500">hash</span> ${b.hash}</div>
+            <div><span class="text-slate-500">previousHash</span> ${b.previous_hash}</div>
+            <div><span class="text-slate-500">timestamp</span> ${b.timestamp}</div>
+          </div>
+          <div class="mt-3">
+            <div class="text-sm font-medium text-slate-700 mb-1">交易 (${(b.transactions || []).length})</div>
+            ${txs || '<p class="text-xs text-slate-400">无</p>'}
+          </div>
+        `;
+        root.appendChild(card);
+      }
+    }
+
+    async function refresh() {
+      const data = await api('GET', '/api/blockchain/chain');
+      renderChain(data);
+    }
+
+    $('btn-refresh').addEventListener('click', async () => {
+      try { await refresh(); } catch (e) { alert(e.message); }
+    });
+
+    $('btn-validate').addEventListener('click', async () => {
+      try {
+        const v = await api('GET', '/api/blockchain/validate');
+        showValidate(v.valid, v.message);
+      } catch (e) { alert(e.message); }
+    });
+
+    $('btn-reset').addEventListener('click', async () => {
+      const d = Math.min(5, Math.max(1, parseInt($('inp-diff').value, 10) || 3));
+      try {
+        setBusy(true);
+        await api('POST', '/api/blockchain/reset', { difficulty: d });
+        await refresh();
+        validatePanel.classList.add('hidden');
+      } catch (e) { alert(e.message); }
+      finally { setBusy(false); }
+    });
+
+    $('btn-demo').addEventListener('click', async () => {
+      const d = Math.min(5, Math.max(1, parseInt($('inp-diff').value, 10) || 3));
+      try {
+        setBusy(true);
+        await api('POST', '/api/blockchain/reset', { difficulty: d });
+        const data = await api('POST', '/api/blockchain/demo-sequence', {});
+        renderChain(data);
+        validatePanel.classList.add('hidden');
+      } catch (e) { alert(e.message); }
+      finally { setBusy(false); }
+    });
+
+    $('btn-tamper').addEventListener('click', async () => {
+      try {
+        const r = await api('POST', '/api/blockchain/tamper', {});
+        showValidate(r.valid, r.message + (r.tampered ? '' : '（未发现可改预览字段，未修改）'));
+        await refresh();
+      } catch (e) { alert(e.message); }
+    });
+
+    try {
+      await refresh();
+    } catch (e) {
+      $('chain-root').innerHTML = '<p class="text-rose-600 text-sm">无法连接 API：' + e.message + '</p>';
+    }
+
+    setInterval(() => {
+      refresh().catch(() => {});
+    }, 5000);
+  </script>
+</body>
+</html>

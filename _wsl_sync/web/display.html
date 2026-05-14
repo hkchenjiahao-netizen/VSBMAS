@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VSBMAS — Classroom display</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+  <header class="bg-slate-800 px-6 py-3 flex items-center justify-between">
+    <h1 class="text-xl font-bold">VSBMAS · Classroom display</h1>
+    <div class="flex items-center gap-3 text-sm">
+      <span id="clock" class="font-mono text-slate-400"></span>
+      <span id="conn"  class="text-slate-400"></span>
+      <button id="btn-clear" class="text-xs bg-slate-700 hover:bg-slate-600 rounded px-2 py-1">Clear</button>
+    </div>
+  </header>
+
+  <div id="auction-picker-bar" class="mx-4 mt-2 bg-slate-800 rounded-xl p-2 flex flex-wrap items-center gap-3 text-sm">
+    <span>Showing auction:</span>
+    <select id="auction-picker" class="bg-slate-700 text-slate-100 rounded px-2 py-1 text-sm min-w-[16rem]">
+      <option value="all">All auctions (aggregate)</option>
+    </select>
+    <span class="text-xs text-slate-400">Switch to focus the display on one auction.</span>
+  </div>
+
+  <div id="round-bar" class="mx-4 mt-2 bg-slate-800 rounded-xl p-2 flex flex-wrap items-center gap-3 text-sm">
+    <span>Round: <b id="round-num">-</b></span>
+    <span>Streak: <b id="streak">0</b></span>
+    <span>Leader: <b id="leader">-</b></span>
+    <span id="round-status" class="px-2 py-0.5 rounded bg-emerald-600 text-xs">Active</span>
+  </div>
+
+  <div id="chain-bar" class="mx-4 mt-2 bg-slate-800 rounded-xl p-2 flex flex-wrap items-center gap-3 text-xs text-teal-200">
+    <span class="text-slate-400">Demo chain (PoW)</span>
+    <span id="demo-chain-strip">Waiting for RoundBlockMined…</span>
+  </div>
+
+  <div id="hud-bar" class="mx-4 mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+    <div id="phase-countdown" class="bg-slate-800 rounded-xl p-3 font-mono text-emerald-300 min-h-[4rem]">
+      <div class="text-slate-500 text-xs mb-1">Phase · display countdown (teacher-driven)</div>
+      <div id="phase-countdown-body">—</div>
+    </div>
+    <div id="rankings-hud" class="bg-slate-800 rounded-xl p-3 text-sky-200 min-h-[4rem]">
+      <div class="text-slate-500 text-xs mb-1">Revealed bids (after open only)</div>
+      <div id="rankings-hud-body">—</div>
+    </div>
+    <div id="brute-hud" class="bg-slate-800 rounded-xl p-3 text-rose-200 min-h-[4rem]">
+      <div class="text-slate-500 text-xs mb-1">RSW brute-force (sequential squares)</div>
+      <div id="brute-hud-body" class="text-xs break-words">Idle</div>
+    </div>
+  </div>
+
+  <!-- v4：三大技术专栏，展示 Bulletproofs / RSW (force-open) / PoE 的实时加密与计算过程 -->
+  <div id="tech-bar" class="mx-4 mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+    <div class="bg-slate-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-slate-300 text-xs font-semibold">Bulletproofs · ZK range proofs</div>
+        <span id="bp-indicator" class="w-2 h-2 rounded-full bg-slate-500"></span>
+      </div>
+      <div id="bp-panel" class="text-xs text-slate-200 space-y-1">
+        <div class="text-slate-500">Waiting for BidSubmitted…</div>
+      </div>
+    </div>
+    <div class="bg-slate-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-slate-300 text-xs font-semibold">RSW · real sequential squaring (auto-calibrated T ≈ 120 s force-open)</div>
+        <span id="rsw-indicator" class="w-2 h-2 rounded-full bg-slate-500"></span>
+      </div>
+      <div class="text-xs text-slate-400 mb-1">progress <span id="rsw-progress-text">0 / 2^T</span> · <span id="rsw-rate">0 sq/s</span> · ETA <span id="rsw-eta">—</span></div>
+      <div class="w-full h-2 bg-slate-700 rounded"><div id="rsw-progress-bar" class="h-2 bg-rose-500 rounded" style="width:0%"></div></div>
+      <div id="rsw-panel" class="text-xs text-slate-200 mt-2">Idle</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl p-3">
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-slate-300 text-xs font-semibold">PoE · proof of exponentiation (Wesolowski)</div>
+        <span id="poe-indicator" class="w-2 h-2 rounded-full bg-slate-500"></span>
+      </div>
+      <div id="poe-panel" class="text-xs text-slate-200 space-y-1">
+        <div class="text-slate-500">Waiting for ForceOpened…</div>
+      </div>
+    </div>
+  </div>
+
+  <main class="p-4 grid grid-cols-12 gap-4">
+    <section class="col-span-3 h-[86vh] overflow-auto bg-slate-800 rounded-xl p-3">
+      <div class="text-slate-400 text-xs mb-2">Event stream</div>
+      <ul id="events-body" class="space-y-1 text-sm"></ul>
+    </section>
+
+    <section class="col-span-6 h-[86vh] overflow-auto bg-slate-800 rounded-xl p-3">
+      <div class="text-slate-400 text-xs mb-2">Cryptographic objects (Pedersen / TTD / Bulletproofs)</div>
+      <div id="hexes-body" class="space-y-3"></div>
+    </section>
+
+    <section class="col-span-3 h-[86vh] bg-slate-800 rounded-xl p-3">
+      <div class="text-slate-400 text-xs mb-2">Proof performance</div>
+      <canvas id="c-prove" height="220"></canvas>
+      <div class="text-slate-400 text-xs mt-4 mb-2">Proof size (bytes)</div>
+      <canvas id="c-size"  height="220"></canvas>
+      <div class="text-slate-400 text-xs mt-4 mb-2">Encryption status</div>
+      <div id="status-lights" class="flex gap-2 flex-wrap"></div>
+    </section>
+
+    <details id="teacher-zone" class="col-span-12 bg-slate-800 rounded-xl p-3 mt-2">
+      <summary class="cursor-pointer text-slate-200 font-semibold select-none">Teacher tools (collapsed)</summary>
+      <div class="mt-3 flex items-center gap-2">
+        <button id="tz-refresh" class="text-xs bg-slate-700 hover:bg-slate-600 rounded px-2 py-1">Refresh</button>
+        <span id="tz-hint" class="text-xs text-slate-400">Click Refresh to rebuild from REST; WebSocket events update live.</span>
+      </div>
+      <div class="mt-3 overflow-auto">
+        <table class="w-full text-sm">
+          <thead class="text-slate-400">
+            <tr class="text-left border-b border-slate-700">
+              <th class="py-1 pr-3">auction_id</th>
+              <th class="py-1 pr-3">user_id</th>
+              <th class="py-1 pr-3">phase</th>
+              <th class="py-1 pr-3">revealed?</th>
+              <th class="py-1 pr-3">action</th>
+            </tr>
+          </thead>
+          <tbody id="teacher-active-bids"></tbody>
+        </table>
+      </div>
+      <div class="mt-3">
+        <a href="/audit.jsonl" download class="text-xs text-sky-400 hover:text-sky-300 underline">[Download audit.jsonl]</a>
+      </div>
+    </details>
+  </main>
+
+  <script type="module">
+    import { api, EventStream, $ } from '/assets/common.js';
+    import { hexCard, toast } from '/assets/components.js';
+
+    setInterval(() => {
+      $('#clock').textContent = new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      });
+    }, 500);
+
+    const cProve = new Chart($('#c-prove'), {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: 'prove_ms', data: [], borderColor: '#6366f1', tension: 0.3 }]},
+      options: { responsive: true, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+    });
+    const cSize = new Chart($('#c-size'), {
+      type: 'bar',
+      data: { labels: [], datasets: [{ label: 'proof bytes', data: [], backgroundColor: '#10b981' }]},
+      options: { responsive: true, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+    });
+
+    const bids = new Map();
+
+    let currentAid = 'all';
+    const auctionMeta = new Map(); // aid -> { item_name, reserve_price }
+    // v4.2：按 auction 分片存最近的 rankings 和 phase，切换 auction-picker 时用来重绘 HUD。
+    const rankingsByAid = new Map(); // aid -> BidRankings
+    const phaseByAid = new Map();    // aid -> { label, deadlineMs }
+
+    function addAuctionOption(aid, name) {
+      const sel = document.getElementById('auction-picker');
+      if (sel.querySelector(`option[value="${aid}"]`)) return;
+      const opt = document.createElement('option');
+      opt.value = String(aid);
+      opt.textContent = `#${aid} · ${name || '?'}`;
+      sel.appendChild(opt);
+    }
+
+    function shouldShow(aid) {
+      return currentAid === 'all' || String(aid) === String(currentAid);
+    }
+
+    function rebuildVisibility() {
+      document.querySelectorAll('#hexes-body > div[data-aid]').forEach(el => {
+        el.style.display = shouldShow(Number(el.dataset.aid)) ? '' : 'none';
+      });
+      document.querySelectorAll('#events-body > li[data-aid]').forEach(el => {
+        el.style.display = shouldShow(Number(el.dataset.aid)) ? '' : 'none';
+      });
+    }
+
+    // v4.2：根据当前 currentAid 重绘排名 HUD 与 phase countdown；在切换 auction-picker 时调用。
+    function rerenderHudsForCurrent() {
+      // Rankings HUD
+      let rk = null;
+      if (currentAid === 'all') {
+        // all 模式下取最后一次写入任意 aid 的 rankings（Map 按插入顺序；values() 最后一个即最新）。
+        const arr = [...rankingsByAid.values()];
+        rk = arr.length ? arr[arr.length - 1] : null;
+      } else {
+        rk = rankingsByAid.get(Number(currentAid)) ?? null;
+      }
+      if (rk) {
+        updateRankingsHud(rk);
+      } else {
+        $('#rankings-hud-body').innerHTML = '—';
+      }
+      // Phase countdown 的 label/deadline
+      let ph = null;
+      if (currentAid === 'all') {
+        const arr = [...phaseByAid.values()];
+        ph = arr.length ? arr[arr.length - 1] : null;
+      } else {
+        ph = phaseByAid.get(Number(currentAid)) ?? null;
+      }
+      if (ph) {
+        lastPhaseLabel = ph.label || '';
+        lastDeadlineMs = ph.deadlineMs ?? null;
+      } else {
+        lastPhaseLabel = '';
+        lastDeadlineMs = null;
+      }
+      // tickHudCountdown 会在 400ms 周期内自行基于当前 label/deadline 刷新。
+    }
+
+    document.getElementById('auction-picker').addEventListener('change', (e) => {
+      currentAid = e.target.value;
+      rebuildVisibility();
+      rerenderHudsForCurrent();
+    });
+
+    function keyOf(aid, uid) { return `${aid}:${uid}`; }
+
+    function pushEvent(env) {
+      const li = document.createElement('li');
+      li.className = 'border-l-2 pl-2 border-slate-600';
+      li.dataset.aid = String(env.auction_id ?? env.session_top_id ?? '');
+      const tag = env.type.padEnd(16);
+      let extra = '';
+      if (env.type === 'RoundBlockMined') {
+        const tail = env.block_hash ? String(env.block_hash).slice(-10) : '—';
+        extra = ` <span class="text-teal-300 text-xs">sess ${env.session_top_id} · riggs ${env.riggs_auction_id} · #${env.block_index} · ${env.valid ? '✓ valid' : '✗ invalid'} …${tail}</span>`;
+      }
+      li.innerHTML = `<span class="text-slate-500 mr-1">${(env.ts || '').slice(11, 19)}</span>
+                      <span class="font-mono">${tag}</span>${extra}`;
+      const body = $('#events-body');
+      body.insertBefore(li, body.firstChild);
+      while (body.children.length > 200) body.removeChild(body.lastChild);
+      rebuildVisibility();
+    }
+
+    function addBidCard(env) {
+      const k = keyOf(env.auction_id, env.user_id);
+      const wrap = document.createElement('div');
+      wrap.className = 'border border-slate-700 rounded-lg p-3 bg-slate-900';
+      wrap.dataset.key = k;
+      wrap.dataset.aid = String(env.auction_id);
+
+      const title = document.createElement('div');
+      title.className = 'flex items-center justify-between mb-2';
+      title.innerHTML = `
+        <div class="font-semibold text-slate-100">Bid #${env.auction_id} · user ${env.user_id}</div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-400">prove ${env.prove_ms} ms</span>
+          <span data-role="status" class="w-3 h-3 rounded-full bg-emerald-400" title="Encrypted"></span>
+        </div>`;
+
+      wrap.appendChild(title);
+
+      const bv = env.bid_view;
+      const ped = hexCard({
+        title: '<span style="color:#000">Pedersen · hides plaintext bid amount</span>',
+        hex: bv.ped_commit_hex,
+        sizeBytes: 32,
+        meta:  '<span style="color:#000">Maps user + randomness → curve point; amount not shown on screen</span>',
+      });
+      const bp  = hexCard({
+        title: '<span style="color:#000">Bulletproofs · range proof for bid + balance</span>',
+        hex: bv.range_proof_bid_hex,
+        sizeBytes: bv.range_proof_bid_size,
+        meta:  '<span style="color:#000">Proves bid ∈ valid range without revealing value</span>',
+      });
+      const tc  = hexCard({
+        title: '<span style="color:#000">TTD / LazyTC · time-lock + symmetric ciphertext</span>',
+        hex: bv.tc_commit_hex,
+        sizeBytes: null,
+        meta:  '<span style="color:#000">RSA group element x + AEAD ct; force-open needs 2^T sequential squarings + PoE</span>',
+      });
+      wrap.append(ped, bp, tc);
+
+      // Part B：ZK 约束证明（bid >= reserve_price, bid > prev_round_high_bid）
+      const cp = env.constraint_proofs;
+      if (cp) {
+        const rvOk = cp.reserve_verify_ok ? '<span style="color:#065f46">verify ✓</span>' : '<span style="color:#7f1d1d">verify ✗</span>';
+        const rvCard = hexCard({
+          title: `<span style="color:#000">Aux range proof · bid ≥ reserve_price (${cp.reserve_price})</span>`,
+          hex: cp.reserve_proof_hex,
+          sizeBytes: cp.reserve_proof_size,
+          meta: `<span style="color:#000">Bulletproof on shifted commitment C − g·reserve; ${rvOk}</span>`,
+        });
+        wrap.append(rvCard);
+        if (cp.prev_round_high_bid != null && cp.prev_proof_hex) {
+          const pvOk = cp.prev_verify_ok ? '<span style="color:#065f46">verify ✓</span>' : '<span style="color:#7f1d1d">verify ✗</span>';
+          const pvCard = hexCard({
+            title: `<span style="color:#000">Aux range proof · bid &gt; prev_round_high_bid (${cp.prev_round_high_bid})</span>`,
+            hex: cp.prev_proof_hex,
+            sizeBytes: cp.prev_proof_size,
+            meta: `<span style="color:#000">Bulletproof on shifted commitment C − g·(prev_high+1); ${pvOk}</span>`,
+          });
+          wrap.append(pvCard);
+        }
+      }
+
+      $('#hexes-body').insertBefore(wrap, $('#hexes-body').firstChild);
+
+      bids.set(k, { card: wrap, status: 'hidden' });
+      updateStatusLights();
+
+      cProve.data.labels.push(`#${env.auction_id}:${env.user_id}`);
+      cProve.data.datasets[0].data.push(env.prove_ms);
+      cProve.update();
+      cSize.data.labels.push(`#${env.auction_id}:${env.user_id}`);
+      cSize.data.datasets[0].data.push(bv.total_proof_size_bytes);
+      cSize.update();
+      rebuildVisibility();
+    }
+
+    function markOpened(env) {
+      const k = keyOf(env.auction_id, env.user_id);
+      const b = bids.get(k);
+      if (!b) return;
+      b.status = 'opened';
+      b.amount = env.bid_revealed;
+      const dot = b.card.querySelector('[data-role="status"]');
+      dot.classList.replace('bg-emerald-400', 'bg-amber-400');
+      dot.title = 'Revealed';
+
+      const reveal = document.createElement('div');
+      reveal.className = 'mt-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded text-amber-200 text-sm';
+      const val = env.bid_revealed != null ? env.bid_revealed : '—';
+      reveal.innerHTML = `<span class="font-semibold">Reveal:</span> bid = <span class="font-mono">${val}</span>
+                          <span class="text-xs text-amber-300 ml-2">mode=${env.opening?.mode ?? '-'}</span>`;
+      b.card.appendChild(reveal);
+      updateStatusLights();
+    }
+
+    function markVerificationFailed(env) {
+      const li = document.createElement('li');
+      li.className = 'border-l-2 pl-2 border-rose-500 text-rose-300 blink-red';
+      li.innerHTML = `<span class="text-slate-400 mr-1">${(env.ts || '').slice(11, 19)}</span>
+                      <span class="font-mono">${env.category}</span> ← ${env.reason}`;
+      const body = $('#events-body');
+      body.insertBefore(li, body.firstChild);
+
+      if (env.actor != null && env.auction_id != null) {
+        const b = bids.get(keyOf(env.auction_id, env.actor));
+        if (b) {
+          const dot = b.card.querySelector('[data-role="status"]');
+          dot.classList.remove('bg-emerald-400', 'bg-amber-400');
+          dot.classList.add('bg-rose-500');
+          dot.title = `Failed: ${env.category}`;
+          b.card.classList.add('blink-red');
+          setTimeout(() => b.card.classList.remove('blink-red'), 3000);
+        }
+      }
+    }
+
+    function updateStatusLights() {
+      const host = $('#status-lights'); host.innerHTML = '';
+      for (const [k, b] of bids) {
+        const dot = document.createElement('span');
+        dot.className = `w-4 h-4 rounded-full ${
+          b.status === 'opened' ? 'bg-amber-400' :
+          b.status === 'failed' ? 'bg-rose-500'   : 'bg-emerald-400'}`;
+        dot.title = `${k} · ${b.status}`;
+        host.appendChild(dot);
+      }
+    }
+
+    // v4：三大技术面板实时更新
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+    function shortHex(h, n = 24) {
+      if (!h) return '—';
+      const s = String(h).replace(/^0x/, '');
+      return s.length <= n * 2 ? s : `${s.slice(0, n)}…${s.slice(-n)}`;
+    }
+    function updateBulletproofsPanel(ev) {
+      const cp = ev.constraint_proofs;
+      if (!cp) return;
+      $('#bp-indicator').className = 'w-2 h-2 rounded-full ' + ((cp.reserve_verify_ok && (cp.prev_verify_ok === null || cp.prev_verify_ok === undefined || cp.prev_verify_ok)) ? 'bg-emerald-400' : 'bg-rose-500');
+      const prevLine = cp.prev_round_high_bid != null
+        ? `<div>prev_round_high_bid = <span class="font-mono">${esc(cp.prev_round_high_bid)}</span> · verify ${cp.prev_verify_ok ? '<span class="text-emerald-400">✓</span>' : '<span class="text-rose-400">✗</span>'} · ${esc(cp.prev_proof_size)} bytes</div>`
+        : '<div class="text-slate-500">prev_round_high_bid: none (round 1)</div>';
+      $('#bp-panel').innerHTML = `
+        <div class="text-slate-400">auction #${esc(ev.auction_id)} · user ${esc(ev.user_id)} · prove ${esc(ev.prove_ms)}ms / verify ${esc(ev.verify_ms)}ms</div>
+        <div>reserve_price = <span class="font-mono">${esc(cp.reserve_price)}</span> · verify ${cp.reserve_verify_ok ? '<span class="text-emerald-400">✓</span>' : '<span class="text-rose-400">✗</span>'} · ${esc(cp.reserve_proof_size)} bytes</div>
+        ${prevLine}
+        <div class="text-slate-500">range proof sample: <span class="font-mono">${shortHex(cp.reserve_proof_hex, 12)}</span></div>
+      `;
+    }
+    function updateRswPanel(ev) {
+      $('#rsw-indicator').className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+      const total = Number(ev.steps_total) || 1;
+      const done  = Number(ev.steps_done) || 0;
+      const pct = Math.min(100, (done / total) * 100);
+      $('#rsw-progress-bar').style.width = pct.toFixed(2) + '%';
+      $('#rsw-progress-text').textContent = `${done} / ${total}`;
+      const elapsed = Math.max(1, Number(ev.elapsed_ms) || 1);
+      const rate = done / (elapsed / 1000);
+      $('#rsw-rate').textContent = rate.toFixed(1) + ' sq/s';
+      const eta = rate > 0 ? ((total - done) / rate) : Infinity;
+      $('#rsw-eta').textContent = isFinite(eta) ? `${Math.round(eta)}s` : '—';
+      $('#rsw-panel').innerHTML = `
+        <div class="text-slate-400">honest force-open · auction ${esc(ev.auction_id)} · user ${esc(ev.user_id)}</div>
+        <div class="text-slate-300">computing y = x^{2^T} via sequential squarings · hidden-order RSA group</div>
+      `;
+    }
+    function finalizeRswPanel(ev) {
+      const op = ev.opening || {};
+      $('#rsw-indicator').className = 'w-2 h-2 rounded-full bg-emerald-400';
+      $('#rsw-progress-bar').style.width = '100%';
+      const cm = op.computation_ms != null ? `${op.computation_ms} ms (~${(op.computation_ms/1000).toFixed(1)}s)` : '—';
+      const mode = op.mode || '—';
+      // opening_hex 在 force 模式下形如 "{y_hex}|poe:q:...|l:..."，取左半段为 y
+      const opHex = op.opening_hex || '';
+      const y = String(opHex).split('|')[0] || '';
+      $('#rsw-panel').innerHTML = `
+        <div class="text-slate-400">Completed · mode=<b class="${mode === 'force' ? 'text-rose-300' : 'text-amber-300'}">${esc(mode)}</b> · computation_ms = <b>${esc(cm)}</b></div>
+        <div class="text-slate-300">honest_rsw = ${op.honest_rsw ? '<span class="text-emerald-400">true</span>' : '<span class="text-rose-400">false</span>'} · steps = ${esc(op.rsw_total_sequential_steps || '—')} · T = ${esc(op.time_param_t ?? '—')}</div>
+        <div class="text-slate-500 break-all">y ≈ <span class="font-mono">${shortHex(y, 12)}</span></div>
+      `;
+    }
+    function updatePoePanel(ev) {
+      const op = ev.opening || {};
+      const ok = !!op.poe_verify_ok;
+      $('#poe-indicator').className = 'w-2 h-2 rounded-full ' + (ok ? 'bg-emerald-400' : 'bg-rose-500');
+      $('#poe-panel').innerHTML = `
+        <div class="text-slate-400">auction ${esc(ev.auction_id)} · user ${esc(ev.user_id)}</div>
+        <div>verify: ${ok ? '<span class="text-emerald-400">✓ passed</span>' : '<span class="text-rose-400">✗ failed</span>'}</div>
+        <div class="text-slate-500 break-all">ℓ (challenge prime) = <span class="font-mono">${shortHex(op.poe_challenge_l_hex, 10)}</span></div>
+        <div class="text-slate-500 break-all">q (quotient)        = <span class="font-mono">${shortHex(op.poe_quotient_q_hex, 10)}</span></div>
+      `;
+    }
+
+    $('#btn-clear').onclick = () => {
+      $('#events-body').innerHTML = '';
+      $('#hexes-body').innerHTML = '';
+      $('#status-lights').innerHTML = '';
+      bids.clear();
+      cProve.data.labels = []; cProve.data.datasets[0].data = []; cProve.update();
+      cSize.data.labels  = []; cSize.data.datasets[0].data  = []; cSize.update();
+      teacherClear();
+    };
+
+    const teacherRows = new Map();
+    const phaseByAuction = new Map();
+
+    function teacherKey(aid, uid) { return `${aid}:${uid}`; }
+
+    function teacherRender(row) {
+      const tr = row.tr;
+      tr.innerHTML = '';
+      const tdA = document.createElement('td'); tdA.className = 'py-1 pr-3 font-mono'; tdA.textContent = row.aid;
+      const tdU = document.createElement('td'); tdU.className = 'py-1 pr-3 font-mono'; tdU.textContent = row.uid;
+      const tdP = document.createElement('td'); tdP.className = 'py-1 pr-3'; tdP.textContent = row.phase ?? '-';
+      const tdR = document.createElement('td'); tdR.className = 'py-1 pr-3';
+      tdR.textContent = row.revealed ? 'yes' : 'no';
+      if (row.revealed) tdR.classList.add('text-amber-300');
+      const tdBtn = document.createElement('td'); tdBtn.className = 'py-1 pr-3';
+      const btn = document.createElement('button');
+      btn.className = 'text-xs bg-rose-700 hover:bg-rose-600 disabled:bg-slate-600 disabled:text-slate-400 rounded px-2 py-1';
+      btn.textContent = 'Force-open';
+      btn.disabled = !!row.revealed;
+      btn.onclick = () => {
+        const aid = row.aid, uid = row.uid;
+        fetch('/api/auctions/' + aid + '/force_open', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ user_id: uid }),
+        }).then(async (res) => {
+          const text = await res.text();
+          if (!res.ok) toast('Force-open failed: ' + (text || res.status), 'danger');
+          else toast('Force-open submitted #' + aid + ' user ' + uid, 'ok');
+        }).catch((e) => toast('Force-open error: ' + e.message, 'danger'));
+      };
+      tdBtn.appendChild(btn);
+      tr.append(tdA, tdU, tdP, tdR, tdBtn);
+    }
+
+    function teacherUpsertRow(aid, uid, patch = {}) {
+      const k = teacherKey(aid, uid);
+      let row = teacherRows.get(k);
+      if (!row) {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-800';
+        tr.dataset.key = k;
+        row = { aid, uid, phase: patch.phase ?? phaseByAuction.get(aid) ?? '-', revealed: !!patch.revealed, tr };
+        teacherRows.set(k, row);
+        $('#teacher-active-bids').appendChild(tr);
+      } else {
+        if (patch.phase != null) row.phase = patch.phase;
+        if (patch.revealed != null) row.revealed = !!patch.revealed;
+      }
+      teacherRender(row);
+    }
+
+    function teacherMarkRevealed(aid, uid) {
+      teacherUpsertRow(aid, uid, { revealed: true });
+    }
+
+    function teacherUpdatePhase(aid, phase) {
+      phaseByAuction.set(aid, phase);
+      for (const row of teacherRows.values()) {
+        if (row.aid === aid) { row.phase = phase; teacherRender(row); }
+      }
+    }
+
+    function teacherClear() {
+      teacherRows.clear();
+      phaseByAuction.clear();
+      $('#teacher-active-bids').innerHTML = '';
+    }
+
+    async function teacherRefresh() {
+      try {
+        const [au, ev] = await Promise.all([
+          api('GET', '/auctions'),
+          api('GET', '/events?since=0&since_boot=true'),
+        ]);
+        teacherClear();
+        const list = (ev && ev.events) || [];
+        const revealed = new Set();
+        for (const e of list) {
+          if (e.type === 'SelfOpened' || e.type === 'ForceOpened') {
+            revealed.add(teacherKey(e.auction_id, e.user_id));
+          }
+          if (e.type === 'PhaseTransition' && e.auction_id != null && e.to_phase) {
+            phaseByAuction.set(e.auction_id, e.to_phase);
+          }
+        }
+        const known = new Set((au && au.auctions || []).map(a => a.id));
+        for (const e of list) {
+          if (e.type !== 'BidSubmitted') continue;
+          if (known.size && !known.has(e.auction_id)) continue;
+          const k = teacherKey(e.auction_id, e.user_id);
+          teacherUpsertRow(e.auction_id, e.user_id, {
+            phase: phaseByAuction.get(e.auction_id) ?? 'BidCollection',
+            revealed: revealed.has(k),
+          });
+        }
+        toast('Teacher table refreshed: ' + teacherRows.size + ' rows', 'ok');
+      } catch (err) {
+        toast('Refresh failed: ' + (err.message || err), 'danger');
+      }
+    }
+
+    $('#tz-refresh').onclick = teacherRefresh;
+
+    let lastDeadlineMs = null;
+    let lastPhaseLabel = '';
+
+    function updateRankingsHud(rk) {
+      if (!rk) return;
+      const h = rk.highest_amount != null ? `user ${rk.highest_user_id} → ${rk.highest_amount}` : '—';
+      const s = rk.second_amount != null ? `user ${rk.second_user_id} → ${rk.second_amount}` : '—';
+      $('#rankings-hud-body').innerHTML = `<div>High: <b>${h}</b></div><div>2nd: <b>${s}</b></div>`;
+    }
+
+    function tickHudCountdown() {
+      const el = $('#phase-countdown-body');
+      // v4.2：首先从 phaseByAid 读取当前选中 aid 的 label/deadline，避免 lastPhaseLabel 被
+      // 其它 auction 的 PhaseTransition 覆盖。currentAid === 'all' 时退回到全局变量。
+      let label = lastPhaseLabel;
+      let deadline = lastDeadlineMs;
+      if (currentAid !== 'all') {
+        const ph = phaseByAid.get(Number(currentAid));
+        label = ph?.label ?? '';
+        deadline = ph?.deadlineMs ?? null;
+      }
+      if (deadline == null) {
+        el.className = 'text-slate-300';
+        el.textContent = label ? `Phase: ${label}` : '—';
+        return;
+      }
+      const rem = Math.max(0, deadline - Date.now());
+      const sec = Math.floor(rem / 1000);
+      el.className = sec > 60 ? 'text-emerald-300' : sec > 30 ? 'text-amber-300' : 'text-rose-400';
+      el.textContent = `${label || 'Phase'} · ${sec}s left (display only)`;
+    }
+    setInterval(tickHudCountdown, 400);
+
+    (async () => {
+      try {
+        const { auctions } = await api('GET', '/auctions');
+        for (const a of auctions || []) addAuctionOption(a.id, a.item_name);
+      } catch {}
+    })();
+
+    const es = new EventStream();
+    $('#conn').textContent = 'Connecting…';
+    es.addEventListener('open',  () => $('#conn').textContent = 'WebSocket connected');
+    es.addEventListener('close', () => $('#conn').textContent = 'Disconnected');
+    es.addEventListener('event', (e) => {
+      const ev = e.detail;
+      pushEvent(ev);
+      if (ev.type === 'RoundAdvanced') {
+        $('#round-num').textContent = ev.new_round;
+        $('#streak').textContent = ev.streak;
+        $('#leader').textContent = ev.leader ?? '-';
+      }
+      if (ev.type === 'AuctionCreated') {
+        auctionMeta.set(ev.id, { item_name: ev.item_name, reserve_price: ev.reserve_price });
+        addAuctionOption(ev.id, ev.item_name);
+      }
+      switch (ev.type) {
+        case 'BidSubmitted':       addBidCard(ev); teacherUpsertRow(ev.auction_id, ev.user_id, { phase: 'BidCollection' }); updateBulletproofsPanel(ev); break;
+        case 'ForceOpenProgress':
+          lastPhaseLabel = `Computing RSW… ${ev.steps_done}/${ev.steps_total}`;
+          $('#phase-countdown-body').textContent = `${lastPhaseLabel} · ${ev.elapsed_ms}ms · auction ${ev.auction_id} user ${ev.user_id}`;
+          updateRswPanel(ev);
+          break;
+        case 'SelfOpened':
+        case 'ForceOpened':
+          markOpened(ev);
+          teacherMarkRevealed(ev.auction_id, ev.user_id);
+          if (ev.rankings) {
+            rankingsByAid.set(Number(ev.auction_id), ev.rankings);
+            if (shouldShow(ev.auction_id)) updateRankingsHud(ev.rankings);
+          }
+          if (ev.type === 'ForceOpened') { finalizeRswPanel(ev); updatePoePanel(ev); }
+          break;
+        case 'PhaseTransition':
+          teacherUpdatePhase(ev.auction_id, ev.to_phase);
+          phaseByAid.set(Number(ev.auction_id), {
+            label: ev.to_phase || '',
+            deadlineMs: ev.deadline_epoch_ms ?? null,
+          });
+          if (shouldShow(ev.auction_id)) {
+            lastPhaseLabel = ev.to_phase || '';
+            if (ev.deadline_epoch_ms != null) lastDeadlineMs = ev.deadline_epoch_ms;
+          }
+          break;
+        case 'BruteForceProgress':
+          $('#brute-hud-body').innerHTML =
+            `<span class="text-rose-600 font-semibold">RSW brute-force</span> · ${ev.squarings_done} / ${ev.total_sequential_steps} sq · ${ev.rate_per_sec.toFixed(1)}/s · ETA ~${Math.round(ev.estimated_total_secs)}s · T=${ev.time_param_t}`;
+          break;
+        case 'BruteForceStopped':
+          $('#brute-hud-body').textContent = `Stopped (${ev.reason}): ${ev.squarings_done} squarings`;
+          break;
+        case 'BruteForceCracked':
+          // v4.1：演示 RSW time-lock 被暴力破解 —— 揭示 bid 并提示后续 ForceOpened 将完成结算。
+          $('#brute-hud-body').innerHTML =
+            `<span class="text-emerald-600 font-semibold">CRACKED</span> · auction #${ev.auction_id} · user #${ev.user_id} · bid=<b>${ev.bid_revealed}</b> · ${ev.squarings_done} sq · ${ev.elapsed_ms}ms`;
+          break;
+        case 'VerificationFailed': markVerificationFailed(ev); break;
+        case 'RoundBlockMined':
+          $('#demo-chain-strip').innerHTML =
+            `<span class="font-mono">round ${ev.round}</span> · block #${ev.block_index} · riggs ${ev.riggs_auction_id} · ${
+              ev.valid ? '<span class="text-emerald-400">chain valid</span>' : '<span class="text-rose-400">broken</span>'
+            }`;
+          break;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VSBMAS Demo</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <header class="bg-white shadow-sm">
+    <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+      <h1 class="text-2xl font-bold text-indigo-700">VSBMAS</h1>
+      <span id="conn" class="text-xs text-slate-400">Connecting…</span>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+    <section class="md:col-span-2 bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-semibold mb-2">Share this origin</h2>
+      <p class="text-sm text-slate-600 mb-2">Students open the same host you used (e.g. laptop WLAN IP + <code class="bg-slate-100 px-1 rounded">:8080</code>). On WSL, run <code class="bg-slate-100 px-1 rounded">setup_network.ps1</code> on Windows once.</p>
+      <div class="font-mono text-sm break-all bg-slate-50 border rounded p-3" id="origin-box"></div>
+      <div class="mt-4 flex justify-center" id="qr-host"></div>
+    </section>
+    <a href="/teacher.html" class="bg-white rounded-2xl shadow p-6 hover:shadow-lg transition">
+      <h2 class="text-xl font-semibold">Teacher: create auction</h2>
+      <p class="text-slate-500 mt-2">Phases, force-open table, RSW/PoE panel.</p>
+    </a>
+    <a href="/student.html" class="bg-white rounded-2xl shadow p-6 hover:shadow-lg transition">
+      <h2 class="text-xl font-semibold">Student: join auction</h2>
+      <p class="text-slate-500 mt-2">Bid, self-open, balances, brute-force demo.</p>
+    </a>
+    <a href="/display.html" class="bg-white rounded-2xl shadow p-6 hover:shadow-lg transition md:col-span-2">
+      <h2 class="text-xl font-semibold">Display: classroom projection</h2>
+      <p class="text-slate-500 mt-2">Live cryptography cards, countdown, rankings, brute-force HUD.</p>
+    </a>
+    <a href="/blockchain.html" class="bg-white rounded-2xl shadow p-6 hover:shadow-lg transition md:col-span-2 border-2 border-indigo-100">
+      <h2 class="text-xl font-semibold text-indigo-800">Blockchain demo（简易链）</h2>
+      <p class="text-slate-500 mt-2">查看区块、hash、previousHash、PoW；运行示例上链与篡改检测（需后端在线）。</p>
+    </a>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
+  <script type="module">
+    import { EventStream } from '/assets/common.js';
+    const es = new EventStream();
+    const conn = document.getElementById('conn');
+    es.addEventListener('open',  () => conn.textContent = 'Connected · WebSocket');
+    es.addEventListener('close', () => conn.textContent = 'Disconnected, reconnecting…');
+
+    async function resolveShareUrl() {
+      try {
+        const r = await fetch('/share.json', { cache: 'no-store' });
+        if (r.ok) {
+          const j = await r.json();
+          if (j.share_url) return j.share_url;
+        }
+      } catch {}
+      return `${location.protocol}//${location.host}/`;
+    }
+
+    const shareUrl = await resolveShareUrl();
+    document.getElementById('origin-box').textContent = shareUrl
+      + (shareUrl.includes('localhost') ? '  ← 老师用 WLAN IP 打开这个页面，或先在 Windows 跑 setup_network.ps1' : '');
+
+    const qh = document.getElementById('qr-host');
+    if (window.QRCode) {
+      qh.innerHTML = '';
+      const el = document.createElement('div');
+      qh.appendChild(el);
+      new QRCode(el, { text: shareUrl, width: 168, height: 168 });
+    } else {
+      qh.textContent = '(QR library failed to load)';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Teacher — VSBMAS</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <header class="bg-white shadow-sm">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <h1 class="text-xl font-bold text-indigo-700">Teacher console</h1>
+      <div class="flex items-center gap-3 text-sm">
+        <span id="countdown-hint" class="text-slate-500 font-mono text-xs"></span>
+        <span id="chain-mine-hint" class="text-teal-700 font-mono text-xs max-w-xl truncate hidden" title="Last RoundBlockMined from demo PoW chain"></span>
+        <a href="/" class="text-slate-500">← Home</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-6 space-y-6">
+    <section class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-semibold mb-3">Cryptographic parameters (read-only)</h2>
+      <dl id="params" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm"></dl>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-semibold mb-4">Create auction</h2>
+      <form id="form-create" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Item name</span>
+          <input name="item_name" required class="border rounded px-3 py-2">
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Metadata URI (ERC721)</span>
+          <input name="item_uri" placeholder="ipfs://... or leave empty" class="border rounded px-3 py-2">
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Reserve price</span>
+          <input name="reserve_price" type="number" min="0" value="10" required class="border rounded px-3 py-2">
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Total duration (sec)</span>
+          <input name="total_duration_secs" type="number" min="30" value="36000" required class="border rounded px-3 py-2">
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-sm text-slate-600">Round duration (sec) — display countdown</span>
+          <input name="round_duration_secs" type="number" min="10" value="120" class="border rounded px-3 py-2">
+        </label>
+        <label class="flex flex-col gap-1 md:col-span-2">
+          <span class="text-sm text-slate-600">Phase display timer (sec, optional) — for set_phase calls</span>
+          <input id="inp-phase-dur" type="number" min="0" value="120" class="border rounded px-3 py-2 w-40" title="Sent as display_duration_secs with phase buttons">
+        </label>
+        <div class="md:col-span-2 flex justify-end gap-2">
+          <button type="reset" class="px-4 py-2 border rounded">Reset</button>
+          <button class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">Create auction</button>
+        </div>
+      </form>
+      <div id="create-result" class="mt-4 hidden bg-emerald-50 border border-emerald-200 rounded p-3 text-sm"></div>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-semibold mb-3">Current sessions</h2>
+      <p class="text-xs text-slate-500 mb-3">Session ID is the first Riggs auction id. Phase buttons drive the classroom (students can only bid in BidCollection). Countdown is display-only.</p>
+      <table class="w-full text-sm">
+        <thead class="text-slate-500">
+          <tr>
+            <th class="text-left py-1">Session</th>
+            <th class="text-left py-1">Riggs id</th>
+            <th class="text-left py-1">Item</th>
+            <th class="text-left py-1">Phase</th>
+            <th class="text-left py-1">Bids</th>
+            <th class="text-left py-1">Round</th>
+            <th class="text-left py-1">Controls</th>
+          </tr>
+        </thead>
+        <tbody id="auction-rows"></tbody>
+      </table>
+    </section>
+
+    <section class="bg-white rounded-2xl shadow p-6">
+      <h2 class="text-lg font-semibold mb-2">Pending bids (current Riggs round)</h2>
+      <p class="text-xs text-slate-500 mb-2">Use <b>Open bid</b> once: scheduled self-opens run first, then remaining bids are force-opened (RSW+PoE). <b>Next round</b> also force-opens any still-pending reveals.</p>
+      <button type="button" id="btn-refresh-bids" class="text-xs bg-slate-200 rounded px-2 py-1 mb-2">Refresh from events</button>
+      <table class="w-full text-sm">
+        <thead class="text-slate-500">
+          <tr>
+            <th class="text-left py-1">riggs_id</th>
+            <th class="text-left py-1">user</th>
+            <th class="text-left py-1">revealed</th>
+            <th class="text-left py-1">action</th>
+          </tr>
+        </thead>
+        <tbody id="pending-bids-body"></tbody>
+      </table>
+    </section>
+
+    <section class="bg-indigo-50 border border-indigo-200 rounded-2xl p-6">
+      <h2 class="text-lg font-semibold mb-2 text-indigo-900">Last force-open — RSW / PoE (from live events)</h2>
+      <div id="rsw-poe-panel" class="text-xs bg-white border rounded p-3 overflow-auto max-h-[32rem] space-y-2">
+        <!-- v4: RSW 进度条 + PoE verify 状态灯；通过 ForceOpenProgress / ForceOpened 事件驱动 -->
+        <div class="flex items-center justify-between">
+          <div class="font-semibold text-slate-800">RSW force-open · real sequential squaring (auto-calibrated T)</div>
+          <span id="tc-rsw-led" class="w-3 h-3 rounded-full bg-slate-300" title="idle"></span>
+        </div>
+        <div class="text-slate-600">progress <span id="tc-rsw-steps" class="font-mono">0 / 2^T</span> · <span id="tc-rsw-rate" class="font-mono">0 sq/s</span> · ETA <span id="tc-rsw-eta" class="font-mono">—</span></div>
+        <div class="w-full h-2 bg-slate-200 rounded"><div id="tc-rsw-bar" class="h-2 bg-rose-600 rounded" style="width:0%"></div></div>
+        <div id="tc-rsw-result" class="text-slate-500">Waiting for ForceOpenProgress / ForceOpened…</div>
+        <div class="pt-2 border-t border-slate-200">
+          <div class="flex items-center justify-between">
+            <div class="font-semibold text-slate-800">PoE (proof of exponentiation, Wesolowski)</div>
+            <span id="tc-poe-led" class="w-3 h-3 rounded-full bg-slate-300" title="no PoE yet"></span>
+          </div>
+          <div id="tc-poe-body" class="text-slate-600 mt-1">—</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { api, EventStream, $ } from '/assets/common.js';
+    import { toast, phaseBadge } from '/assets/components.js';
+
+    const phaseDur = () => Number($('#inp-phase-dur').value) || 0;
+
+    (async () => {
+      const p = await api('GET', '/params');
+      $('#params').innerHTML = Object.entries(p).map(([k, v]) =>
+        `<div class="flex justify-between border-b py-1"><dt class="text-slate-500">${k}</dt><dd class="font-mono">${v}</dd></div>`
+      ).join('');
+    })().catch(e => toast(e.message, 'danger'));
+
+    const auctions = new Map();
+    /** @type {Map<string, {riggs_id:number,user_id:number,revealed:boolean}>} */
+    const pending = new Map();
+
+    async function refreshAdvanceGates() {
+      for (const a of auctions.values()) {
+        const btn = document.querySelector(`.advance-round[data-advance="${a.id}"]`);
+        if (!btn) continue;
+        try {
+          const r = await api('GET', `/auctions/${a.id}/can_advance`);
+          btn.disabled = !r.can_advance;
+          btn.title = r.can_advance
+            ? `Ready (force=true). reason: ${r.reason || ''}`
+            : `Locked. reason: ${r.reason || 'unknown'}`;
+        } catch (e) {
+          // v4: 探测失败（如 backend 还未实现该路由）时降级为「默认允许点击」，
+          // 避免因 404/网络抖动把老师永远挡在 disabled 状态。
+          btn.disabled = false;
+          btn.title = `can_advance probe failed (${e && e.message ? e.message : 'network'}); local override: allowed`;
+        }
+      }
+    }
+
+    function render() {
+      $('#auction-rows').innerHTML = [...auctions.values()].map(a => `
+        <tr class="border-b align-top">
+          <td class="py-2 font-mono">${a.id}</td>
+          <td class="py-2 font-mono">${a.currentRiggs ?? a.id}</td>
+          <td class="py-2">${a.item_name ?? '-'}</td>
+          <td class="py-2"><span data-phase="${a.phase ?? 'BidCollection'}"></span></td>
+          <td class="py-2">${a.bid_count ?? 0}</td>
+          <td class="py-2">${a.round ?? 1}</td>
+          <td class="py-2 space-y-1">
+            <div class="flex flex-wrap gap-1">
+              <button type="button" class="px-2 py-0.5 text-xs rounded bg-blue-600 text-white set-phase" data-session="${a.id}" data-phase="BidCollection">Bid collection</button>
+              <button type="button" class="px-2 py-0.5 text-xs rounded bg-amber-600 text-white set-phase" data-session="${a.id}" data-phase="BidSelfOpening">Open bid</button>
+            </div>
+            <button type="button" class="px-2 py-0.5 text-xs rounded bg-indigo-600 text-white advance-round disabled:opacity-40 disabled:cursor-not-allowed" data-advance="${a.id}" disabled title="Unlocks after Open bid and all bids revealed">Next round</button>
+            <div class="text-xs text-slate-400">Timer: ${a.deadline ? fmtRemain(a.deadline) : '—'}</div>
+          </td>
+        </tr>
+      `).join('');
+      document.querySelectorAll('[data-phase]').forEach(el => {
+        el.appendChild(phaseBadge(el.dataset.phase));
+      });
+      refreshAdvanceGates();
+    }
+
+    function fmtRemain(deadlineMs) {
+      const s = Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return `${m}:${r.toString().padStart(2, '0')}`;
+    }
+
+    setInterval(() => {
+      const bits = [...auctions.values()].map(a => a.deadline ? `S${a.id} ${fmtRemain(a.deadline)}` : '').filter(Boolean);
+      $('#countdown-hint').textContent = bits.join(' · ') || '';
+    }, 500);
+
+    function renderPending() {
+      const rows = [...pending.values()].filter(x => !x.revealed);
+      $('#pending-bids-body').innerHTML = rows.length ? rows.map(x => `
+        <tr class="border-b">
+          <td class="py-1 font-mono">${x.riggs_id}</td>
+          <td class="py-1 font-mono">${x.user_id}</td>
+          <td class="py-1">${x.revealed ? 'yes' : 'no'}</td>
+          <td class="py-1">
+            <button type="button" class="text-xs bg-rose-700 text-white rounded px-2 py-0.5 fo" data-aid="${x.riggs_id}" data-uid="${x.user_id}">Force-open</button>
+          </td>
+        </tr>
+      `).join('') : '<tr><td colspan="4" class="text-slate-400 py-2">No pending rows (refresh or wait for bids)</td></tr>';
+
+      $('#pending-bids-body').querySelectorAll('button.fo').forEach(btn => {
+        btn.onclick = async () => {
+          const aid = Number(btn.dataset.aid);
+          const uid = Number(btn.dataset.uid);
+          try {
+            await api('POST', `/auctions/${aid}/force_open`, { user_id: uid });
+            toast(`Force-open ${aid} user ${uid}`, 'ok');
+          } catch (e) {
+            toast('Force-open failed: ' + e.message, 'danger', 5000);
+          }
+        };
+      });
+    }
+
+    async function rebuildPendingFromEvents() {
+      try {
+        const { events } = await api('GET', '/events?since=0&since_boot=true');
+        pending.clear();
+        const revealed = new Set();
+        for (const e of events) {
+          if (e.type === 'SelfOpened' || e.type === 'ForceOpened') {
+            revealed.add(`${e.auction_id}:${e.user_id}`);
+          }
+        }
+        for (const e of events) {
+          if (e.type !== 'BidSubmitted') continue;
+          const k = `${e.auction_id}:${e.user_id}`;
+          pending.set(k, {
+            riggs_id: e.auction_id,
+            user_id: e.user_id,
+            revealed: revealed.has(k),
+          });
+        }
+        for (const k of revealed) {
+          const p = pending.get(k);
+          if (p) p.revealed = true;
+        }
+        renderPending();
+        toast('Pending table rebuilt', 'ok', 1500);
+      } catch (e) {
+        toast('Refresh failed: ' + e.message, 'danger');
+      }
+    }
+
+    $('#btn-refresh-bids').onclick = rebuildPendingFromEvents;
+
+    $('#auction-rows').addEventListener('click', async (e) => {
+      const sp = e.target.closest('.set-phase');
+      if (sp) {
+        const session = sp.dataset.session;
+        const phase = sp.dataset.phase;
+        try {
+          const body = { phase, display_duration_secs: phaseDur() };
+          await api('POST', `/auctions/${session}/set_phase`, body);
+          toast(`Phase → ${phase}`, 'ok');
+        } catch (err) {
+          toast('set_phase failed: ' + err.message, 'danger', 5000);
+        }
+        return;
+      }
+      const btn = e.target.closest('.advance-round');
+      if (!btn) return;
+      const id = btn.dataset.advance;
+      if (!id) return;
+      try {
+        const r = await api('POST', `/auctions/${id}/advance_round?force=true`, { k: 0 });
+        toast(r.status === 'Complete'
+          ? `Auction #${id} finished`
+          : `Round ${r.round} (streak=${r.streak})`, 'ok');
+      } catch (err) {
+        toast('advance_round failed: ' + err.message, 'danger', 5000);
+      }
+    });
+
+    $('#form-create').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const body = {
+        item_name: fd.get('item_name'),
+        item_uri: fd.get('item_uri') || null,
+        reserve_price: Number(fd.get('reserve_price')),
+        total_duration_secs: Number(fd.get('total_duration_secs')),
+        round_duration_secs: Number(fd.get('round_duration_secs') || 60),
+      };
+      try {
+        const res = await api('POST', '/auctions', body);
+        const box = $('#create-result');
+        box.classList.remove('hidden');
+        box.innerHTML = `
+          <div class="font-semibold mb-1">Created session #${res.id}</div>
+          <div>Item: ${res.item_name}</div>
+          <div>Phase: ${res.phase} · deadline_ms: ${res.phase_deadline_ms}</div>
+        `;
+        toast(`Auction #${res.id} created`, 'ok');
+      } catch (err) {
+        toast('Create failed: ' + err.message, 'danger', 5000);
+      }
+    });
+
+    const es = new EventStream();
+    es.addEventListener('event', (e) => {
+      const ev = e.detail;
+      if (ev.type === 'AuctionCreated') {
+        auctions.set(ev.id, {
+          id: ev.id,
+          item_name: ev.item_name,
+          reserve_price: ev.reserve_price,
+          phase: 'BidCollection',
+          bid_count: 0,
+          round: 1,
+          streak: 0,
+          currentRiggs: ev.id,
+          deadline: null,
+        });
+        render();
+      } else if (ev.type === 'PhaseTransition') {
+        for (const a of auctions.values()) {
+          if (a.id === ev.auction_id || a.currentRiggs === ev.auction_id) {
+            a.phase = ev.to_phase;
+            if (ev.deadline_epoch_ms != null) a.deadline = ev.deadline_epoch_ms;
+            break;
+          }
+        }
+        render();
+        refreshAdvanceGates();
+      } else if (ev.type === 'BidSubmitted') {
+        const k = `${ev.auction_id}:${ev.user_id}`;
+        pending.set(k, { riggs_id: ev.auction_id, user_id: ev.user_id, revealed: false });
+        for (const a of auctions.values()) {
+          if (a.currentRiggs === ev.auction_id || a.id === ev.auction_id) {
+            a.bid_count = (a.bid_count ?? 0) + 1;
+            break;
+          }
+        }
+        render();
+        renderPending();
+        refreshAdvanceGates();
+      } else if (ev.type === 'ForceOpenProgress') {
+        updateTcRsw(ev);
+      } else if (ev.type === 'SelfOpened' || ev.type === 'ForceOpened') {
+        const k = `${ev.auction_id}:${ev.user_id}`;
+        const p = pending.get(k);
+        if (p) p.revealed = true;
+        renderPending();
+        if (ev.type === 'ForceOpened' && ev.opening) {
+          finalizeTcRsw(ev);
+          updateTcPoe(ev);
+        }
+        refreshAdvanceGates();
+      } else if (ev.type === 'RoundAdvanced') {
+        const a = auctions.get(ev.auction_id);
+        if (a) {
+          a.round = ev.new_round;
+          a.streak = ev.streak;
+          a.bid_count = 0;
+          if (ev.current_riggs_auction_id != null) a.currentRiggs = ev.current_riggs_auction_id;
+          render();
+        }
+        pending.clear();
+        renderPending();
+        refreshAdvanceGates();
+      } else if (ev.type === 'BruteForceCracked' || ev.type === 'Settled') {
+        refreshAdvanceGates();
+      } else if (ev.type === 'RoundBlockMined') {
+        const h = $('#chain-mine-hint');
+        h.classList.remove('hidden');
+        const tail = ev.block_hash ? String(ev.block_hash).slice(-12) : '—';
+        h.textContent = `PoW demo链 · #${ev.block_index} · riggs ${ev.riggs_auction_id} · ${ev.valid ? '✓' : '✗'} …${tail}`;
+      }
+    });
+
+    setInterval(refreshAdvanceGates, 3000);
+
+    function escT(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+    function shortT(h, n = 10) { if (!h) return '—'; const s = String(h).replace(/^0x/, ''); return s.length <= n * 2 ? s : `${s.slice(0, n)}…${s.slice(-n)}`; }
+    function updateTcRsw(ev) {
+      const total = Number(ev.steps_total) || 1;
+      const done = Number(ev.steps_done) || 0;
+      const pct = Math.min(100, (done / total) * 100);
+      $('#tc-rsw-bar').style.width = pct.toFixed(2) + '%';
+      $('#tc-rsw-steps').textContent = `${done} / ${total}`;
+      const elapsed = Math.max(1, Number(ev.elapsed_ms) || 1);
+      const rate = done / (elapsed / 1000);
+      $('#tc-rsw-rate').textContent = rate.toFixed(1) + ' sq/s';
+      const eta = rate > 0 ? ((total - done) / rate) : Infinity;
+      $('#tc-rsw-eta').textContent = isFinite(eta) ? `${Math.round(eta)}s` : '—';
+      $('#tc-rsw-led').className = 'w-3 h-3 rounded-full bg-amber-500 animate-pulse';
+      $('#tc-rsw-led').title = 'computing sequential squarings';
+      $('#tc-rsw-result').innerHTML = `<span class="text-slate-600">auction ${escT(ev.auction_id)} · user ${escT(ev.user_id)} · elapsed ${escT(ev.elapsed_ms)}ms</span>`;
+    }
+    function finalizeTcRsw(ev) {
+      const op = ev.opening || {};
+      $('#tc-rsw-bar').style.width = '100%';
+      $('#tc-rsw-led').className = 'w-3 h-3 rounded-full bg-emerald-600';
+      $('#tc-rsw-led').title = 'force-open complete';
+      const opHex = op.opening_hex || '';
+      const y = String(opHex).split('|')[0] || '';
+      const cm = op.computation_ms != null ? `${op.computation_ms} ms (~${(op.computation_ms/1000).toFixed(1)}s)` : '—';
+      // v4.2：派生 sq_rate = 2^T / (computation_ms/1000)，直观反映真 RSW 吞吐。
+      let rateStr = '—';
+      if (op.computation_ms != null && op.time_param_t != null) {
+        const total = Math.pow(2, Number(op.time_param_t));
+        const rate = total / (Number(op.computation_ms) / 1000);
+        rateStr = `${rate.toFixed(0)} sq/s`;
+      }
+      $('#tc-rsw-result').innerHTML = `
+        <div>mode = <b class="${op.mode === 'force' ? 'text-rose-700' : 'text-amber-700'}">${escT(op.mode || '-')}</b> · honest_rsw = ${op.honest_rsw ? '<span class="text-emerald-700">true</span>' : '<span class="text-rose-700">false</span>'}</div>
+        <div>steps = <span class="font-mono">${escT(op.rsw_total_sequential_steps || '—')}</span> · T = <span class="font-mono">${escT(op.time_param_t ?? '—')}</span> · computation_ms = <b>${escT(cm)}</b> · rate = <span class="font-mono">${escT(rateStr)}</span></div>
+        <div class="text-slate-500 break-all">y ≈ <span class="font-mono">${shortT(y, 12)}</span></div>
+      `;
+    }
+    function updateTcPoe(ev) {
+      const op = ev.opening || {};
+      const ok = !!op.poe_verify_ok;
+      $('#tc-poe-led').className = 'w-3 h-3 rounded-full ' + (ok ? 'bg-emerald-600' : 'bg-rose-600');
+      $('#tc-poe-led').title = ok ? 'PoE verify ✓' : 'PoE verify ✗ / missing';
+      $('#tc-poe-body').innerHTML = `
+        <div>verify: ${ok ? '<span class="text-emerald-700 font-semibold">✓ passed</span>' : '<span class="text-rose-700 font-semibold">✗ failed / missing</span>'}</div>
+        <div class="break-all">ℓ (challenge prime) = <span class="font-mono">${shortT(op.poe_challenge_l_hex, 10)}</span></div>
+        <div class="break-all">q (quotient) = <span class="font-mono">${shortT(op.poe_quotient_q_hex, 10)}</span></div>
+      `;
+    }
+  </script>
+</body>
+</html>
